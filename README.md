@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/pymations?color=blue)](https://pypi.org/project/pymations/) [![npm](https://img.shields.io/npm/v/pymations?color=blue)](https://www.npmjs.com/package/pymations) [![Python 3.9+](https://img.shields.io/pypi/pyversions/pymations)](https://pypi.org/project/pymations/) [![MIT licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 
-[![Pymations animations: Pythagoras by rearrangement, sine from the unit circle, a derivative and Euler's identity, each a short Python program](docs/images/gallery.gif)](https://johnwylie70.github.io/pymations/)
+[![Pymations animations: Pythagoras by rearrangement, a 3D surface with the camera orbiting, sine from the unit circle, and a shaded icosahedron turning, each a short Python program](docs/images/gallery.gif)](https://johnwylie70.github.io/pymations/)
 
 **[See them playing in your browser, with their code →](https://johnwylie70.github.io/pymations/)** Nothing to install. Or **[change the code and run it on the Pymations page →](https://www.circuitry.dev/pymations)**
 
@@ -137,11 +137,12 @@ Each animation fills its box, starts when it scrolls into view, and pauses when 
 - **Animations:** `Create`, `Write`, `FadeIn`, `Transform`, `TransformMatchingTex`, `.animate`, `Indicate`, `LaggedStart`, and the rest of Manim's common set, with Manim's rate functions.
 - **Updaters:** `ValueTracker`, `add_updater`, `always_redraw` and `TracedPath`. Most run in the browser, so scrubbing stays exact.
 - **The camera:** `MovingCameraScene` and `self.camera.frame` to zoom and pan.
+- **3D:** `ThreeDScene` with surfaces, spheres, cubes, cones, tori and polyhedra, lit and shaded, and a camera that orbits and moves; drawn in the page, with no WebGL needed.
 - **Explainers:** `Card`, `Callout`, `LowerThird`, `Badge`, `Highlight`, `Spotlight`, `EndCard`, pictures with rounded corners and shadows, and transitions between scenes.
 - **Sound:** voice-overs, music and sound effects, in step with the scrubber.
 - **Pyctures drawing:** a scene can paint a background with [Pyctures](https://github.com/johnwylie70/pyctures)' `ctx` every frame, or place a Pyctures canvas inside the scene as an object.
 
-3D scenes play flat, in 2D. [Differences from Manim](docs/differences-from-manim.md) has the full list.
+[Differences from Manim](docs/differences-from-manim.md) lists what runs differently.
 
 ## Make a video
 
@@ -149,7 +150,7 @@ The library plays scenes and builds pages; it does not write video files yet. To
 
 ## Examples
 
-In [`examples/`](examples). The twelve reference scenes are real Manim Community scripts, unchanged. All of them play in the [online gallery](https://johnwylie70.github.io/pymations/).
+In [`examples/`](examples). The eighteen reference scenes are real Manim Community scripts, unchanged. All of them play in the [online gallery](https://johnwylie70.github.io/pymations/).
 
 | File | What it is |
 |---|---|
@@ -159,6 +160,7 @@ In [`examples/`](examples). The twelve reference scenes are real Manim Community
 | `completing_the_square.py`, `euler_identity.py`, `sum_pairing.py` | Algebra explained step by step |
 | `tangent_slider.py`, `riemann_sum.py`, `cycloid.py` | Updaters: a sliding tangent, Riemann sums, a rolling wheel |
 | `matrix_transform.py` | The plane moved by a matrix |
+| `surface_orbit.py`, `polyhedron.py` | 3D: a surface with the camera orbiting, a shaded icosahedron |
 | `sin_cos_plot.py`, `grid_camera.py`, `moving_frame_box.py`, `brace_annotation.py`, `point_on_shapes.py`, `moving_around.py` | Graphs, the camera, braces and placement |
 | `hello.py`, `hello_class.py` | The first scene, in both forms |
 | `equation_steps.py`, `two_scenes.py`, `with_pyctures.py` | Equations, several scenes in one file, a Pyctures background |

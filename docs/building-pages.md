@@ -78,7 +78,7 @@ Once published on npm, the browser half can be loaded without copying files:
 
 ```html
 <div data-pymations-src="hello.py"></div>
-<script type="module" src="https://cdn.jsdelivr.net/npm/pymations@0.1.0/pymations.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/pymations@0.2.0/pymations.js"></script>
 ```
 
 ### From JavaScript

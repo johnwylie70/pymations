@@ -36,6 +36,8 @@ SITE = "https://johnwylie70.github.io/pymations/"
 # Manim Community scripts run unchanged.
 SCENES = [
     ("pythagoras.py", "Pythagoras", "The theorem shown by rearranging four right triangles in a square.", "manim"),
+    ("surface_orbit.py", "A surface in 3D", "z = sin(x) cos(y) on 3D axes, the camera orbiting round it.", "manim"),
+    ("polyhedron.py", "An icosahedron", "A shaded icosahedron turning about two axes, then the camera moves.", "manim"),
     ("derivative.py", "What is a derivative?", "A secant line closing in on the tangent.", "manim"),
     ("unit_circle_sine.py", "Sine from the unit circle", "A point going round the circle draws the sine wave.", "manim"),
     ("completing_the_square.py", "Completing the square", "The algebra, step by step, beside the picture.", "manim"),
@@ -58,13 +60,17 @@ SCENES = [
 ]
 
 # The scenes the README's animated picture shows, a few seconds each.
-GIF_SCENES = ["pythagoras.py", "unit_circle_sine.py", "derivative.py", "euler_identity.py"]
+# (file, seconds). The 3D clips are shorter: every pixel of an orbiting,
+# shaded surface changes each frame, which is what makes a GIF large.
+GIF_SCENES = [("pythagoras.py", 3.0), ("surface_orbit.py", 1.5), ("unit_circle_sine.py", 3.0), ("polyhedron.py", 2.0)]
+# Kept about 350 KB, so the README loads fast: 560 px wide, 10 frames a second, 64 colours, no dithering.
+GIF_WIDTH, GIF_FPS, GIF_COLOURS = 560, 10, 64
 
 # How far into each animation (ms) its card picture is taken; the rest at 6 s.
 THUMB_AT = {"pythagoras.py": 20000, "derivative.py": 16000, "unit_circle_sine.py": 14000,
             "completing_the_square.py": 20000, "euler_identity.py": 14000, "sum_pairing.py": 16000,
             "grid_camera.py": 5000, "equation_steps.py": 8000, "tangent_slider.py": 12000, "riemann_sum.py": 12000,
-            "cycloid.py": 10000, "matrix_transform.py": 10000}
+            "cycloid.py": 10000, "matrix_transform.py": 10000, "surface_orbit.py": 7000, "polyhedron.py": 6000}
 
 STYLE = """
 :root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
@@ -239,7 +245,7 @@ def shots(out):
         server.close()
 
 
-def gif(out, target, seconds=3.0, fps=15):
+def gif(out, target, fps=15):
     from playwright.sync_api import sync_playwright
     frames = Path(tempfile.mkdtemp(prefix="pymations-gif-"))
     server = Serve(out)
@@ -247,7 +253,7 @@ def gif(out, target, seconds=3.0, fps=15):
     try:
         with sync_playwright() as p:
             b = p.chromium.launch()
-            for name in GIF_SCENES:
+            for name, seconds in GIF_SCENES:
                 page, scene = open_scene(b, server.url + Path(name).stem + ".html", (1100, 900))
                 page.wait_for_timeout(THUMB_AT.get(name, 6000) - 1500)
                 for _ in range(int(seconds * fps)):
@@ -260,7 +266,8 @@ def gif(out, target, seconds=3.0, fps=15):
         server.close()
     target.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", str(frames / "f%05d.png"),
-                    "-vf", "scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=4",
+                    "-vf", "fps=%d,scale=%d:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=%d:stats_mode=diff[p];"
+                           "[b][p]paletteuse=dither=none:diff_mode=rectangle" % (GIF_FPS, GIF_WIDTH, GIF_COLOURS),
                     "-loop", "0", str(target)], check=True)
     shutil.rmtree(frames)
     print("Recorded %s (%d KB)" % (target.relative_to(ROOT), target.stat().st_size // 1024))

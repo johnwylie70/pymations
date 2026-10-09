@@ -4,7 +4,7 @@ The browser half of [Pymations](https://github.com/johnwylie70/pymations) ([try 
 
 ```html
 <div data-pymations-src="scene.py"></div>
-<script type="module" src="https://cdn.jsdelivr.net/npm/pymations@0.1.0/pymations.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/pymations@0.2.0/pymations.js"></script>
 ```
 
 `scene.py` is an ordinary Pymations scene:

@@ -37,4 +37,4 @@ play(Restore(camera.frame))
 
 ## 3D
 
-`ThreeDScene`, `ThreeDAxes`, `set_camera_orientation` and `move_camera` are accepted, so a 3D script runs, but it plays flat, seen from the front, and says so once. `add_fixed_in_frame_mobjects` adds things as usual.
+In a `ThreeDScene` the camera is pointed with angles instead: `set_camera_orientation(phi=, theta=)`, `move_camera(...)` and `begin_ambient_camera_rotation()`. See [3D](3d.md).

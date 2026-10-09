@@ -10,7 +10,7 @@ copy of the project whose README points them at the files on GitHub
 repository is never changed.
 
 The pictures appear on PyPI once the repository is public with them on <ref>.
-Options: --ref v0.1.0 (default: main), --repo account/pymations (default: the
+Options: --ref v0.2.0 (default: main), --repo account/pymations (default: the
 Source URL in pyproject.toml).
 """
 import argparse

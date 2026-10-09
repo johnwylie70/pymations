@@ -18,12 +18,14 @@ import { IDENTITY, invert, lerpMat, mul, rotateAbout, scaleAbout, translate, typ
 import { alignPaths, bbox, circleSub, lerpPaths, pointAt, polySub, rectCorners, transformPaths } from './geometry'
 import { linear, rateByName, smooth, thereAndBack, type RateFn } from './rate'
 import {
-  addToDisplay, become, boxCenter, centerOf, critical, family, familyBox, hasGeom, isShown, leaves,
-  removeFromDisplay, styleFamily, transformFamily, World, type ImageRef, type Mob, type Snap, type Style,
+  addToDisplay, become, boxCenter, CAMERA, centerOf, critical, family, familyBox, familyBox3, hasGeom, is3D, isShown, leaves,
+  removeFromDisplay, styleFamily, transformFamily, transformFamily3, World, worldP3, type ImageRef, type Mob, type Snap, type Style,
 } from './scene'
-import { endPoint, evalClock, evalValue, isMobRef, normArgs, num, resolvePoint, resolveTarget, resolveVec, withPoint, type Kw } from './args'
+import { endPoint, evalClock, evalValue, isMobRef, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, resolveVec, withPoint, type Kw } from './args'
 import type { Box } from './geometry'
-import { runOp, rotationMat, type OpEnv } from './ops'
+import { camOf, camPatch, runOp, rotationMat, type CamState, type OpEnv } from './ops'
+import { apply3, embed, invert3, IDENT3, lerp3, mul3, proj, rot3, type V3 } from './math3'
+import { reconcile } from './render3d'
 import { lerpColor, normColor, PURE_YELLOW, YELLOW } from './color'
 import { Frame, lerpStyle, type DrawItem } from './frame'
 import { isNumber, setNumberValue } from './kinds'
@@ -110,6 +112,56 @@ interface MorphPair {
   fadeB?: Mob
   /** Transform's path_arc: points travel on arcs of this angle instead of straight. */
   arc?: number
+  /** 3D morph (either side lives in 3D): both as equal-length 3D polylines (flat xyz). */
+  A3?: number[]
+  B3?: number[]
+  closed3?: boolean
+  shade3?: boolean
+}
+
+/** A part in 3D as one polyline: its 3D points, or its outline sampled and mapped (8 points per curve). */
+function world3(m: Mob): { pts: number[]; closed: boolean } {
+  if (m.p3 && m.p3.length) return { pts: worldP3(m), closed: !!m.closed3 }
+  const M = m.m3 ?? embed(m.m)
+  const pts: number[] = []
+  let closed = false
+  for (const sp of m.paths) {
+    const P = sp.points
+    closed = closed || sp.closed
+    if (P.length) pts.push(...apply3(M, P[0][0], P[0][1], 0))
+    for (let i = 0; i + 3 < P.length; i += 3) {
+      for (let k = 1; k <= 8; k++) {
+        const t = k / 8, u = 1 - t
+        const x = u * u * u * P[i][0] + 3 * u * u * t * P[i + 1][0] + 3 * u * t * t * P[i + 2][0] + t * t * t * P[i + 3][0]
+        const y = u * u * u * P[i][1] + 3 * u * u * t * P[i + 1][1] + 3 * u * t * t * P[i + 2][1] + t * t * t * P[i + 3][1]
+        pts.push(...apply3(M, x, y, 0))
+      }
+    }
+  }
+  return { pts, closed }
+}
+
+/** A polyline resampled to n points evenly along its length. */
+function resample3(pts: number[], n: number, closed: boolean, fallback: number[]): number[] {
+  if (pts.length < 3) {
+    const out: number[] = []
+    for (let i = 0; i < n; i++) out.push(fallback[0], fallback[1], fallback[2] ?? 0)
+    return out
+  }
+  const P = closed ? [...pts, pts[0], pts[1], pts[2]] : pts
+  const m = P.length / 3
+  const cum = [0]
+  for (let i = 1; i < m; i++) cum.push(cum[i - 1] + Math.hypot(P[3 * i] - P[3 * i - 3], P[3 * i + 1] - P[3 * i - 2], P[3 * i + 2] - P[3 * i - 1]))
+  const L = cum[m - 1] || 1
+  const out: number[] = []
+  let j = 1
+  for (let i = 0; i < n; i++) {
+    const d = (L * i) / (closed ? n : Math.max(1, n - 1))
+    while (j < m - 1 && cum[j] < d) j++
+    const t = (d - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1)
+    for (let c = 0; c < 3; c++) out.push(P[3 * (j - 1) + c] + (P[3 * j + c] - P[3 * (j - 1) + c]) * Math.max(0, Math.min(1, t)))
+  }
+  return out
 }
 
 const faded = (st: Style): Style => ({ ...st, so: 0, fo: 0 })
@@ -136,6 +188,16 @@ function morphPairs(s: Snap | World, srcIds: number[], t: Snap | World, tgtIds: 
     }
     const sb = b ? (copyB ? faded(b.style) : b.style) : faded(a.style)
     const sa = a ? (copyA ? faded(a.style) : a.style) : faded(b.style)
+    if ((a && (a.p3 || a.m3)) || (b && (b.p3 || b.m3))) {
+      // 3D: both sides as polylines with the same number of points, blended point by point.
+      const wa = a ? world3(a) : { pts: [], closed: false }, wb = b ? world3(b) : { pts: [], closed: false }
+      const nPts = Math.max(wa.pts.length / 3, wb.pts.length / 3, 4)
+      const closed = (a ? wa.closed : wb.closed) && (b ? wb.closed : wa.closed)
+      const A3 = resample3(wa.pts, nPts, closed, [fallbackSrc[0], fallbackSrc[1], 0])
+      const B3 = resample3(wb.pts, nPts, closed, [fallbackTgt[0], fallbackTgt[1], 0])
+      out.push({ A: [], B: [], A3, B3, closed3: closed, shade3: !!(a?.shade3 || b?.shade3), sa, sb, z: b ? b.z : a.z })
+      continue
+    }
     const [A, B] = alignPaths(a ? worldPaths(a) : [], b ? worldPaths(b) : [], fallbackSrc, fallbackTgt)
     out.push({ A, B, sa, sb, z: b ? b.z : a.z, arc })
   }
@@ -169,6 +231,11 @@ function morphItems(pairs: MorphPair[], alpha: number, rate: RateFn, lag: number
       if (p.fadeB) out.push(itemOf(p.fadeB, a))
       return
     }
+    if (p.A3) {
+      const p3 = a <= 0 ? p.A3 : a >= 1 ? p.B3 : p.A3.map((v, k) => v + (p.B3[k] - v) * a)
+      out.push({ paths: [], m: IDENTITY, m3: IDENT3, p3, closed3: p.closed3, shade3: p.shade3, style: lerpStyle(p.sa, p.sb, a), alpha: 1, partial: null, z: p.z })
+      return
+    }
     const paths = p.arc && Math.abs(p.arc) > 1e-6 ? arcPaths(p.A, p.B, a, p.arc) : lerpPaths(p.A, p.B, a)
     out.push({ paths, m: IDENTITY, style: lerpStyle(p.sa, p.sb, a), alpha: 1, partial: null, z: p.z })
   })
@@ -176,7 +243,10 @@ function morphItems(pairs: MorphPair[], alpha: number, rate: RateFn, lag: number
 }
 
 function itemOf(m: Mob, alpha: number): DrawItem {
-  return { paths: m.paths, m: m.m, style: m.style, alpha, partial: null, z: m.z, text: m.text, image: m.image, shadow: m.shadow, evenodd: m.evenodd }
+  return {
+    paths: m.paths, m: m.m, style: m.style, alpha, partial: null, z: m.z, text: m.text, image: m.image, shadow: m.shadow, evenodd: m.evenodd,
+    ...(m.m3 ? { m3: m.m3 } : {}), ...(m.p3 ? { p3: m.p3, closed3: m.closed3 } : {}), ...(m.shade3 ? { shade3: true } : {}), ...(m.fixed ? { fixed: m.fixed } : {}),
+  }
 }
 
 /** Swap `a` for `b` in the scene list and in any group holding `a` (ReplacementTransform's end: same layer, same slot). */
@@ -204,7 +274,7 @@ function dbf(f: Frame, id: number, a: number, width: number) {
   const o = f.get(id)
   if (!o) return
   const mob = f.scene.mobs.get(id)
-  if (!mob.paths.length) { o.alpha *= a; return }
+  if (!mob.paths.length && !(mob.p3 && mob.p3.length)) { o.alpha *= a; return }
   const out = outlineStyle(o.style, width)
   if (a < 0.5) {
     o.partial = [0, a * 2]
@@ -276,6 +346,7 @@ const LEAF_PARAMS: Record<string, string[]> = {
   move_along_path: ['path'],
   animate: ['ops'],
   change_decimal_to_value: ['number'],
+  move_camera: ['phi', 'theta', 'gamma', 'zoom', 'focal_distance', 'frame_center'],
   changing_decimal: ['function'],
   show_passing_flash: ['time_width'],
   draw_border_then_fill: ['stroke_width'],
@@ -289,7 +360,7 @@ export const ANIM_KINDS = [
   'show_passing_flash', 'restore', 'change_decimal_to_value', 'apply_pointwise_function', 'apply_complex_function',
   'homotopy', 'complex_homotopy', 'apply_wave', 'show_increasing_subsets', 'show_submobjects_one_by_one',
   'add_text_letter_by_letter', 'remove_text_letter_by_letter', 'swap', 'cyclic_replace', 'fade_transform_pieces',
-  'broadcast', 'blink', 'focus_on', 'change_speed', 'changing_decimal', 'wait', 'group', 'lagged', 'succession',
+  'broadcast', 'blink', 'focus_on', 'change_speed', 'changing_decimal', 'move_camera', 'wait', 'group', 'lagged', 'succession',
 ]
 
 const ANIM_ALIASES: Record<string, string> = {
@@ -360,7 +431,7 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
           if (!o) return
           const x = rate(subAlpha(alpha, i, ids.length, lag))
           const mob = f.scene.mobs.get(pid)
-          if (!mob.paths.length) { o.alpha *= kind === 'create' ? x : 1 - x; return }
+          if (!mob.paths.length && !(mob.p3 && mob.p3.length)) { o.alpha *= kind === 'create' ? x : 1 - x; return }
           o.partial = window(x)
         })
       }
@@ -572,6 +643,23 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
     case 'rotate': {
       const id = tgt(), ids = leaves(w, id)
       const angle = num(a.angle, Math.PI)
+      const ax = Array.isArray(a.axis) ? a.axis.map(Number) : [0, 0, 1]
+      if (!(Math.abs(ax[0]) < 1e-12 && Math.abs(ax[1]) < 1e-12) || is3D(w, id)) {
+        // A turn in 3D: each part's 3D map turns about the axis through the centre (or about_point).
+        const b3 = familyBox3(w, id)
+        const about3: V3 = a.about_point != null ? resolvePoint3(w, a.about_point) : [(b3[0] + b3[3]) / 2, (b3[1] + b3[4]) / 2, (b3[2] + b3[5]) / 2]
+        const axis3 = ax as V3
+        return L({
+          apply: (alpha, f, rate, lag) => ids.forEach((pid, i) => {
+            const o = f.get(pid)
+            if (!o) return
+            const R = rot3(axis3, angle * rate(subAlpha(alpha, i, ids.length, lag)), about3)
+            o.m3 = mul3(R, reconcile(o.m, o.m3 ?? f.scene.mobs.get(pid).m3) ?? embed(o.m))
+            o.m = proj(o.m3)
+          }),
+          end: v => transformFamily3(v, id, rot3(axis3, angle, about3)),
+        })
+      }
       const about: Pt = a.about_point != null ? resolvePoint(w, a.about_point)
         : a.about_edge != null ? critical(familyBox(w, id), resolveVec(w, a.about_edge, [0, 0])) : centerOf(w, id)
       return L({
@@ -634,6 +722,41 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
         })
       }
       if (fn == null) throw new Error(`${spec.kind} needs a function the preview can trace`)
+      if (ids.some(i => { const m = w.get(i); return !!(m.p3 || m.m3) })) {
+        // In 3D: every part as 3D points, mapped through the function (["var","p"] is a 3-vector).
+        const map3 = (pts: number[], alpha: number) => {
+          evalClock.alpha = alpha
+          evalClock.homotopy = homotopy
+          const out: number[] = []
+          for (let k = 0; k < pts.length; k += 3) {
+            const v = withPoint([pts[k], pts[k + 1], pts[k + 2]], () => evalValue(w, fn))
+            if (typeof v === 'number') out.push(v, 0, 0)
+            else out.push(v[0] || 0, v[1] || 0, complex ? pts[k + 2] : v[2] || 0)
+          }
+          evalClock.homotopy = false
+          return out
+        }
+        const parts = ids.map(i => ({ id: i, mob: w.get(i), ...world3(w.get(i)) }))
+        const ends3 = homotopy ? null : parts.map(q => map3(q.pts, 1))
+        const item = (q: typeof parts[number], pts: number[], o: { style: Style; alpha: number }): DrawItem =>
+          ({ paths: [], m: IDENTITY, m3: IDENT3, p3: pts, closed3: q.closed, shade3: q.mob.shade3, style: o.style, alpha: o.alpha, partial: null, z: q.mob.z })
+        return L({
+          run: 3,
+          apply: (alpha, f, rate) => {
+            const x = rate(alpha)
+            parts.forEach((q, k) => {
+              const o = f.get(q.id)
+              if (!o) return
+              const pts = homotopy ? map3(q.pts, x) : q.pts.map((v, j) => v + (ends3[k][j] - v) * x)
+              o.replace = [item(q, pts, o)]
+            })
+          },
+          end: v => parts.forEach((q, k) => {
+            if (!v.has(q.id)) return
+            v.update(q.id, { paths: [], p3: homotopy ? map3(q.pts, 1) : ends3[k], closed3: q.closed, m3: IDENT3, m: IDENTITY })
+          }),
+        })
+      }
       // ApplyPointwiseFunction blends straight from the start to the mapped points (built once).
       const ends = homotopy ? null : src.map(s0 => mapPaths(s0.paths, p => mapPt(p, 1)))
       return L({
@@ -778,6 +901,21 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
     case 'animate':
       return buildAnimate(spec, a, ctx)
 
+    case 'move_camera': {
+      // ThreeDScene.move_camera: the camera's settings blend on the timeline (straight, like Manim's).
+      const c0 = camOf(w)
+      const c1 = { ...c0, ...camPatch(w, a), three_d: true }
+      return L({
+        apply: (alpha, f, rate) => {
+          const o = f.get(CAMERA)
+          if (!o) return
+          const x = rate(alpha)
+          o.cam = lerpCam(o.cam ?? c0, c1, x)
+        },
+        end: v => { const m = v.get(CAMERA); v.update(CAMERA, { data: { ...(m.data || {}), cam: c1 } }) },
+      })
+    }
+
     case 'change_decimal_to_value':
       return buildAnimate(spec, { ops: [['set_value', [a.number ?? a.value ?? a.target_number]]] }, ctx)
 
@@ -834,6 +972,15 @@ function lerpImage(a: ImageRef, b: ImageRef, t: number): ImageRef {
   return {
     ...b, w: L(a.w, b.w), h: L(a.h, b.h), radius: L(a.radius || 0, b.radius || 0), border,
     crop: (a.crop || b.crop) ? [L(ca[0], cb[0]), L(ca[1], cb[1]), L(ca[2], cb[2]), L(ca[3], cb[3])] : undefined,
+  }
+}
+
+/** Camera settings blended (move_camera). */
+export function lerpCam(a: CamState, b: CamState, t: number): CamState {
+  const L = (x: number, y: number) => x + (y - x) * t
+  return {
+    three_d: a.three_d || b.three_d, phi: L(a.phi, b.phi), theta: L(a.theta, b.theta), gamma: L(a.gamma, b.gamma),
+    zoom: L(a.zoom, b.zoom), focal: L(a.focal, b.focal), center: [L(a.center[0], b.center[0]), L(a.center[1], b.center[1]), L(a.center[2], b.center[2])],
   }
 }
 
@@ -962,7 +1109,14 @@ function buildAnimateOn(w: World, end: World, id: number): Leaf {
         if (!o) return
         const x = rate(subAlpha(alpha, k, parts.length, lag))
         if (p.pairs) { o.replace = morphItems(p.pairs, x, linear, 0); return }
-        if (p.s.m !== p.e.m) o.m = mul(mul(lerpMat(p.s.m, p.e.m, x), p.inv), o.m)
+        if (p.s.m3 || p.e.m3) {
+          // A 3D object: its 3D maps blend (straight, like Manim's point blend), the front view follows.
+          const s3 = p.s.m3 ?? embed(p.s.m), e3 = p.e.m3 ?? embed(p.e.m)
+          if (s3 !== e3) {
+            o.m3 = mul3(mul3(lerp3(s3, e3, x), invert3(s3)), reconcile(o.m, o.m3 ?? s3) ?? s3)
+            o.m = proj(o.m3)
+          }
+        } else if (p.s.m !== p.e.m) o.m = mul(mul(lerpMat(p.s.m, p.e.m, x), p.inv), o.m)
         if (p.s.style !== p.e.style) o.style = lerpStyle(o.style, p.e.style, x)
         if (p.s.image && p.e.image && p.s.image !== p.e.image) o.image = lerpImage(p.s.image, p.e.image, x)
         const v0 = p.s.data?.value, v1 = p.e.data?.value

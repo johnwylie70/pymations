@@ -12,7 +12,7 @@ import {
   arcSub, circleSub, lineSub, partialPaths, pointAt, polySub, roundedRectSub, totalLength, transformPaths, TAU, type Box,
 } from './geometry'
 import { boxCenter, familyBox, leaves, newMob, type Style, type World } from './scene'
-import { axisToLocal, endPoint, num, resolvePoint, resolveTarget, type AxisMap, type Kw } from './args'
+import { axisToLocal, endPoint, isTargetObj, num, resolvePoint, resolveTarget, type AxisMap, type Kw } from './args'
 import { BARCHART_COLORS, NAMED, normColor, WHITE } from './color'
 import { fontKey } from './text'
 import {
@@ -238,9 +238,11 @@ function makeTable(env: MakeEnv, id: number, kind: string, props: Kw, cellKind: 
   const items: Array<{ id: number; kind: 'text' | 'mathtex' | 'number'; str: string; props: Kw }> = []
   rows.forEach(r => {
     for (let c = 0; c < nc; c++) {
+      const v = r[c] ?? ''
+      // A cell (or label) that is an object the script made: placed as that object.
+      if (isTargetObj(v)) { cellIds.push(resolveTarget(env.w, v)); continue }
       const cid = env.w.newId()
       cellIds.push(cid)
-      const v = r[c] ?? ''
       items.push({ id: cid, kind: cellKind, str: typeof v === 'number' ? String(v) : String(v), props: { font_size: props.font_size, color: props.color } })
     }
   })
@@ -302,9 +304,10 @@ function makeMatrix(env: MakeEnv, id: number, kind: string, props: Kw, cellKind:
   const items: Array<{ id: number; kind: 'text' | 'mathtex' | 'number'; str: string; props: Kw }> = []
   rows.forEach(r => {
     for (let c = 0; c < nc; c++) {
+      const v = (r as unknown[])[c]
+      if (isTargetObj(v)) { ids.push(resolveTarget(env.w, v)); continue }
       const cid = env.w.newId()
       ids.push(cid)
-      const v = (r as unknown[])[c]
       const str = cellKind === 'number' ? formatNumber(Number(v), places) : String(v ?? '')
       items.push({ id: cid, kind: cellKind === 'number' ? 'number' : cellKind, str, props: { font_size: props.font_size, color: props.color } })
     }

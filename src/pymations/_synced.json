@@ -1,7 +1,7 @@
 {
   "runtime_version": "12",
-  "module_version": "18",
-  "engine_sha256": "99c3e5a657439c07",
+  "module_version": "19",
+  "engine_sha256": "edd21ff402b022d6",
   "circuitry_commit": "d552a25ff+uncommitted",
   "synced_at": "2026-10-09",
   "examples": [

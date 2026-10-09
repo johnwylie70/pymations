@@ -1,6 +1,6 @@
 {
   "name": "pymations",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Maths animations from Python on any web page: the browser half of Pymations, with its animation engine. Runs Manim Community scripts. Python runs in the browser with Pyodide.",
   "type": "module",
   "main": "./pymations.js",

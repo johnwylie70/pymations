@@ -33,7 +33,7 @@ import {
   type Mob, type Snap,
 } from './scene'
 import { deref, evalClock, evalValue, isMobRef, normArgs, num, readValue, resolvePoint, resolveTarget } from './args'
-import { runOp, OP_NAMES, setRemake, type OpEnv } from './ops'
+import { camOf, runOp, OP_NAMES, setRemake, type CamState, type OpEnv } from './ops'
 import {
   make as makeKind, KIND_NAMES, setCanvasFactory, setNumberValue, setSharedText, type MakeEnv, type TexFn,
 } from './kinds'
@@ -208,6 +208,11 @@ export function createAnimEngine(options: EngineOptions = {}) {
     if (k.frame_width != null) cfg.frame_width = num(k.frame_width, fw())
     if (k.background != null || k.background_color != null) cfg.background = String(k.background ?? k.background_color)
     if (k.transition != null) cfg.transition = String(k.transition)
+    // ThreeDScene: the 3D camera with Manim's defaults (until set_camera_orientation says otherwise).
+    if (k.three_d) {
+      const m = w.get(CAMERA)
+      w.update(CAMERA, { data: { ...(m.data || {}), cam: { ...camOf(w), three_d: true } } })
+    }
     if (k.transition_time != null) cfg.transition_time = num(k.transition_time, 0.5)
     if (k.frame_height != null || k.frame_width != null) w.set(cameraMob(w.get(CAMERA).m))
   }
@@ -280,7 +285,40 @@ export function createAnimEngine(options: EngineOptions = {}) {
   }
 
   /** At the end of a play/wait, write what the updaters made of their targets into the scene (Manim's state then). */
+  /* --------------------------------------------------- camera rotation */
+
+  /**
+   * Ambient and 3D-illusion camera rotation (ThreeDScene): intervals on the
+   * timeline. A frame adds what turned since its segment began; each
+   * segment's turn is written into the camera when it ends, so any moment is
+   * exact and nothing is replayed.
+   */
+  let ambient: Array<{ about: 'theta' | 'phi' | 'gamma'; rate: number; from: number; to: number }> = []
+  let illusion: Array<{ rate: number; phi0: number; theta0: number; from: number; to: number }> = []
+
+  function camAt(base: CamState, t: number, seg: { t0: number } | null): CamState {
+    let cam = base
+    if (seg) for (const a of ambient) {
+      const d = Math.min(t, a.to) - Math.max(seg.t0, a.from)
+      if (d > 0) cam = { ...cam, [a.about]: cam[a.about] + a.rate * d }
+    }
+    for (const il of illusion) {
+      if (t < il.from) continue
+      const tau = Math.min(t, il.to) - il.from
+      cam = { ...cam, theta: il.theta0 + 0.2 * Math.sin(il.rate * tau), phi: il.phi0 + 0.1 * Math.cos(il.rate * tau) - 0.1 }
+    }
+    return cam
+  }
+
+  function bakeCamera(seg: Segment) {
+    if (!ambient.length && !illusion.length) return
+    const cam = camAt(camOf(w), seg.t1, seg)
+    const m = w.get(CAMERA)
+    w.update(CAMERA, { data: { ...(m.data || {}), cam } })
+  }
+
   function bake(seg: Segment) {
+    bakeCamera(seg)
     if (!updaters.any) return
     const view = w.fork()
     for (const r of updaters.apply(view, seg.t1, seg, deps())) {
@@ -308,6 +346,10 @@ export function createAnimEngine(options: EngineOptions = {}) {
     const name = String(what).replace(/^get_/, '')
     const a = normArgs(args, ['arg'])
     if (name === 'frame') return { width: fw(), height: fh() }
+    if (name === 'camera') {
+      const c = camOf(w)
+      return { phi: c.phi, theta: c.theta, gamma: c.gamma, zoom: c.zoom, focal_distance: c.focal, frame_center: c.center, three_d: c.three_d }
+    }
     evalClock.t = duration
     // A point expression on its own (target null or 0): {"$pt": expr}.
     if (name === 'point' && (target == null || target === 0)) {
@@ -362,6 +404,10 @@ export function createAnimEngine(options: EngineOptions = {}) {
     const seg = segmentAt(t)
     const f = new Frame(seg ? seg.before : w.snapshot())
     if (seg && seg.node) seg.node.frame(t - seg.t0, f)
+    if (seg && (ambient.length || illusion.length)) {
+      const o = f.get(CAMERA)
+      if (o) o.cam = camAt(o.cam ?? camOf(f.scene), t, seg)
+    }
     const hasLive = withLive && liveSize() > 0
     const view = updaters.any || hasLive || anyTraced ? postFrame(f, t, seg, hasLive) : null
     return { f, view }
@@ -513,6 +559,8 @@ export function createAnimEngine(options: EngineOptions = {}) {
       anyTraced = false
       transitions = []
       sounds = []
+      ambient = []
+      illusion = []
       if (c) config(c)
       changed()
       drain()
@@ -673,6 +721,29 @@ export function createAnimEngine(options: EngineOptions = {}) {
           if (end > duration + 1e-9) wait(end - duration)
         })
       })
+    },
+    /** ThreeDScene camera rotation, at the cursor. */
+    begin_ambient_camera_rotation(rate?: unknown, about?: unknown) {
+      run(() => {
+        const ab = String(about ?? 'theta') as 'theta' | 'phi' | 'gamma'
+        ambient = ambient.map(a => (a.about === ab && a.to === Infinity ? { ...a, to: duration } : a))
+        ambient.push({ about: ab, rate: num(rate, 0.02), from: duration, to: Infinity })
+      })
+    },
+    stop_ambient_camera_rotation(about?: unknown) {
+      run(() => {
+        const ab = about == null ? null : String(about)
+        ambient = ambient.map(a => ((ab == null || a.about === ab) && a.to === Infinity ? { ...a, to: duration } : a))
+      })
+    },
+    begin_3dillusion_camera_rotation(rate?: unknown, originPhi?: unknown, originTheta?: unknown) {
+      run(() => {
+        const cam = camOf(w)
+        illusion.push({ rate: num(rate, 1), phi0: num(originPhi, cam.phi), theta0: num(originTheta, cam.theta), from: duration, to: Infinity })
+      })
+    },
+    stop_3dillusion_camera_rotation() {
+      run(() => { illusion = illusion.map(il => (il.to === Infinity ? { ...il, to: duration } : il)) })
     },
     /** Every ValueTracker's value at timeline time t, live overrides included (the tick payload's anim_v). */
     trackerValues(t: number) {

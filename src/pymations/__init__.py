@@ -25,7 +25,7 @@ import os as _os
 import sys as _sys
 import types as _types
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 _HERE = _os.path.dirname(_os.path.abspath(__file__))
 

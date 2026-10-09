@@ -18,7 +18,7 @@ playwright = pytest.importorskip("playwright.sync_api")
 
 # 3D reference scenes synced before the engine draws 3D: they run in Python,
 # and are expected to play once the engine's 3D is in this copy.
-PENDING_3D = {"polyhedron.py", "surface_orbit.py"}
+PENDING_3D = set()
 
 SCENES = sorted(p.name for p in EXAMPLES.glob("*.py") if p.name not in PENDING)
 

@@ -37,7 +37,6 @@ Updaters are recorded as formulas the browser works out every frame, so scrubbin
 
 ## Not available
 
-- **3D.** `ThreeDScene`, `ThreeDAxes`, `set_camera_orientation` and `move_camera` are accepted and play flat, seen from the front. 3D shapes (surfaces, spheres, cubes, prisms) are not available.
 - **Interaction.** `interactive_embed()` and `embed()` do nothing.
 - **Waiting on a condition.** `wait_until(condition)` and `wait(stop_condition=…)` wait for the full time and do not check the condition.
 - **Image operations** (`ImageMobject(..., remove_background=True, resize=…, trace=…)`) work only in Circuitry Studio; a plain `ImageMobject` works everywhere.
@@ -45,6 +44,8 @@ Updaters are recorded as formulas the browser works out every frame, so scrubbin
 - `override_animate` and custom `Animation` subclasses that change points in `interpolate_mobject`: the browser draws animations, so Python code that runs per frame of an animation is not called.
 
 ## Small differences
+
+- **3D is drawn by Pymations itself,** on the page's 2D canvas: faces are shaded by one light and drawn back to front by their centres. Faces that cut through each other can show in the wrong order where they cross. See [3D](3d.md).
 
 - Sound plays in the browser, in step with the scrubber; see [Sound](sound.md). `gain` is in decibels, the same as Manim's.
 

@@ -22,6 +22,7 @@ Pymations is also built into [Circuitry Studio](https://www.circuitry.dev), wher
 - [Layout](layout.md): placing things without coordinates
 - [Colours](colours.md)
 - [The camera](camera.md)
+- [3D](3d.md): surfaces, solids and polyhedra, and a camera that orbits
 - [Sound](sound.md): voice-overs, music and sound effects in step with the timeline
 - [Titles, callouts and cards](presentation.md): pieces for explainer videos
 - [Building pages](building-pages.md): sharing a scene, putting it on a website, recording

@@ -166,7 +166,9 @@ export function makeText(env: MakeEnv, id: number, kind: string, props: Kw, str:
   const em = emFor(num(props.font_size, 48))
   const style = styleFrom(props, { sw: 0, fo: 1 })
   // letter_spacing is in em (0.05 = 5% of the font size), added after each character.
-  const outline = env.text.outline(str, em, key, num(props.line_spacing, 1.2), num(props.letter_spacing, 0) * em)
+  // line_spacing: Manim's −1 (and anything not positive) means the font's own spacing.
+  const ls = num(props.line_spacing, 1.2)
+  const outline = env.text.outline(str, em, key, ls > 0 ? ls : 1.2, num(props.letter_spacing, 0) * em)
   if (!outline) {
     // No outlines: a fillText run of about the right size.
     const lines = str.split('\n')
