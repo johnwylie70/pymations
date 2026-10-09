@@ -28,6 +28,8 @@ export const NAMED: Record<string, string> = {
 export const WHITE = '#FFFFFF'
 export const YELLOW = '#F7D96F'
 export const PURE_YELLOW = '#FFFF00'
+/** Manim's default BarChart colours, in order. */
+export const BARCHART_COLORS = ['#003F5C', '#58508D', '#BC5090', '#FF6361', '#FFA600']
 
 type RGB = [number, number, number]
 

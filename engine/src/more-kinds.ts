@@ -13,7 +13,7 @@ import {
 } from './geometry'
 import { boxCenter, familyBox, leaves, newMob, type Style, type World } from './scene'
 import { axisToLocal, endPoint, num, resolvePoint, resolveTarget, type AxisMap, type Kw } from './args'
-import { NAMED, normColor, WHITE } from './color'
+import { BARCHART_COLORS, NAMED, normColor, WHITE } from './color'
 import { fontKey } from './text'
 import {
   emFor, formatNumber, lineEnds, makeArrow, makeAxes, makeTex, makeText, pt, put, shiftFamily, styleFrom, targetsBox,
@@ -507,7 +507,7 @@ function makeBarChart(env: MakeEnv, id: number, kind: string, props: Kw): void |
     const w = env.w
     const ax = w.get(id)
     const map = ax.data.axes as AxisMap
-    const stops: string[] = (Array.isArray(props.bar_colors) ? props.bar_colors : ['#003F5C', '#58508D', '#BC5090', '#FF6361', '#FFA600']).map((c: unknown) => normColor(c, BLUE))
+    const stops: string[] = (Array.isArray(props.bar_colors) ? props.bar_colors : BARCHART_COLORS).map((c: unknown) => normColor(c, BLUE))
     const bw = num(props.bar_width, 0.6)
     const bars = values.map((v, i) => {
       const a = axisToLocal(map, i + 0.5 - bw / 2, 0), b = axisToLocal(map, i + 0.5 + bw / 2, v)

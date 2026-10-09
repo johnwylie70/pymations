@@ -1,8 +1,8 @@
 {
   "runtime_version": "12",
   "module_version": "15",
-  "engine_sha256": "8765a7083b287cf9",
-  "circuitry_commit": "9a1f39f9f+uncommitted",
+  "engine_sha256": "3f1a03ae774fb6ec",
+  "circuitry_commit": "654ade50f",
   "synced_at": "2026-10-09",
   "examples": [
     "pythagoras.py",

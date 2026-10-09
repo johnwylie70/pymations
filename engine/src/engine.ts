@@ -87,6 +87,8 @@ const DEFAULT_ASPECT = 16 / 9
 
 type LiveOp = [string, unknown, unknown?]
 
+const TRANSITIONS = new Set(['none', 'crossfade', 'slide_left', 'slide', 'slide_right', 'wipe'])
+
 const NEEDS_FONT = new Set(['add_coordinates', 'change_bar_values', 'change_layout'])
 
 const RELATIVE = new Set(['shift', 'rotate', 'scale', 'stretch', 'flip', 'increment_value', 'rotate_about_origin'])
@@ -526,7 +528,16 @@ export function createAnimEngine(options: EngineOptions = {}) {
         }
         // A traced path keeps its point expression: it is evaluated at every sampled moment.
         const traced = String(kind).toLowerCase().replace(/_/g, '') === 'tracedpath'
-        const r = makeKind(makeEnv(), id, kind, traced ? props || {} : deref(w, props || {}))
+        let r = makeKind(makeEnv(), id, kind, traced ? props || {} : deref(w, props || {}))
+        // If it fails later (an image op refused, a TeX error), leave an empty
+        // stand-in under its id: the one real error shows, and later commands
+        // that use the object do not each add "that object does not exist".
+        if (r && typeof (r as Promise<void>).then === 'function') {
+          r = (r as Promise<void>).catch(e => {
+            if (!w.has(id)) w.set(newMob(id, 'group', { sc: '#FFFFFF', fc: '#FFFFFF', sw: 0, so: 1, fo: 0 }, []))
+            throw e
+          })
+        }
         // A traced path samples its point from the moment it is made.
         if (traced && w.has(id)) {
           const d = w.get(id).data
@@ -714,7 +725,12 @@ export function createAnimEngine(options: EngineOptions = {}) {
       run(() => {
         sections.push({ name: String(name ?? ''), t: duration })
         const o = (opts && typeof opts === 'object' ? opts : {}) as { transition?: string; transition_time?: number }
-        const kind = String(o.transition || cfg.transition || 'none')
+        let kind = String(o.transition || cfg.transition || 'none')
+        // Unknown names fall back to a crossfade, with one warning (on the user's line).
+        if (!TRANSITIONS.has(kind)) {
+          report(new Error(`unknown transition '${kind}'; use crossfade, slide_left, slide_right or wipe`))
+          kind = 'crossfade'
+        }
         const dur = num(o.transition_time ?? cfg.transition_time, 0.5)
         if (kind !== 'none' && dur > 0 && duration > 0) transitions.push({ t: duration, dur, kind, out: w.snapshot() })
       })
