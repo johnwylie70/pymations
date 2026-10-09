@@ -967,7 +967,7 @@ export const BUILDERS: Record<string, Builder> = {
     const src = p.canvas && typeof p.canvas === 'object' ? (p.canvas as CanvasImageSource) : canvasFactory ? canvasFactory(pxW, pxH) : null
     const at = p.point != null ? pt(env, p.point, [0, 0]) : null
     put(env, id, kind, p, styleFrom({ fill_opacity: 1, ...p }, { sw: 0 }), [], {
-      image: { src, w: W, h: H }, ...(at ? { m: translate(at[0], at[1]) } : {}), data: { pxW, pxH },
+      image: { src, w: W, h: H, fullW: W, fullH: H, live: true }, ...(at ? { m: translate(at[0], at[1]) } : {}), data: { pxW, pxH },
     })
   },
   mathtex: (env, id, p, kind) => makeTex(env, id, kind, p, 'math'),

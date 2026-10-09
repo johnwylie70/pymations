@@ -15,7 +15,8 @@
 import type { Subpath } from './geometry-types'
 import { partialPaths } from './geometry'
 import { apply, IDENTITY, matScale, mul, type Mat } from './math'
-import { CAMERA, hasGeom } from './scene'
+import { CAMERA, hasGeom, type Shadow } from './scene'
+import { parseColor } from './color'
 import { cssFamily } from './text'
 import type { DrawItem, Frame } from './frame'
 
@@ -129,18 +130,134 @@ export function renderFrame(ctx: CanvasRenderingContext2D, f: Frame, o: RenderOp
   ctx.restore()
 }
 
+/** Canvas shadow settings for a drop shadow, in device pixels (shadows ignore the transform). */
+function setShadow(ctx: CanvasRenderingContext2D, sh: Shadow | undefined, pxPerUnit: number, alpha: number) {
+  if (!sh) return
+  const rgb = parseColor(sh.color) || [0, 0, 0]
+  ctx.shadowColor = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.max(0, Math.min(1, sh.opacity * alpha))})`
+  ctx.shadowBlur = sh.blur * pxPerUnit
+  ctx.shadowOffsetX = sh.dx * pxPerUnit
+  ctx.shadowOffsetY = -sh.dy * pxPerUnit
+}
+
+function clearShadow(ctx: CanvasRenderingContext2D) {
+  ctx.shadowColor = 'rgba(0,0,0,0)'
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = 0
+}
+
+const roundCache = new Map<string, Path2D>()
+
+/** A rounded box centred on the origin, y down (the image's space); cached by size. */
+function roundBox(w: number, h: number, r: number): Path2D {
+  const key = `${w}|${h}|${r}`
+  let p = roundCache.get(key)
+  if (p) return p
+  p = new Path2D()
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2))
+  const x = -w / 2, y = -h / 2
+  p.moveTo(x + rr, y)
+  p.arcTo(x + w, y, x + w, y + h, rr)
+  p.arcTo(x + w, y + h, x, y + h, rr)
+  p.arcTo(x, y + h, x, y, rr)
+  p.arcTo(x, y, x + w, y, rr)
+  p.closePath()
+  if (roundCache.size > 500) roundCache.clear()
+  roundCache.set(key, p)
+  return p
+}
+
+/**
+ * A big picture drawn small is downscaled ONCE to the size it is drawn at
+ * (rounded up), and that copy is drawn from then on; a larger draw later makes
+ * a larger copy. Live canvases (PycturesCanvas) are drawn as they are.
+ */
+const downCache = new WeakMap<object, { canvas: HTMLCanvasElement; k: number }>()
+
+function sourceSize(src: CanvasImageSource): [number, number] {
+  const s = src as any
+  return [s.naturalWidth || s.videoWidth || s.width || 0, s.naturalHeight || s.videoHeight || s.height || 0]
+}
+
+function downscaled(src: CanvasImageSource, k: number): { img: CanvasImageSource; k: number } {
+  if (k >= 0.5 || typeof document === 'undefined') return { img: src, k: 1 }
+  const hit = downCache.get(src as object)
+  if (hit && hit.k >= k) return { img: hit.canvas, k: hit.k }
+  const [nw, nh] = sourceSize(src)
+  // Round the scale up to the next power of two step, so a slow zoom does not rebuild every frame.
+  const kk = Math.min(1, Math.pow(2, Math.ceil(Math.log2(k * 1.25))))
+  if (kk >= 0.5 || !nw || !nh) return { img: src, k: 1 }
+  const c = document.createElement('canvas')
+  c.width = Math.max(1, Math.round(nw * kk))
+  c.height = Math.max(1, Math.round(nh * kk))
+  const g = c.getContext('2d')
+  g.imageSmoothingQuality = 'high'
+  g.drawImage(src, 0, 0, c.width, c.height)
+  downCache.set(src as object, { canvas: c, k: kk })
+  return { img: c, k: kk }
+}
+
+function drawImageItem(ctx: CanvasRenderingContext2D, it: DrawItem, M: Mat, pxPerUnit: number) {
+  const im = it.image
+  const st = it.style
+  if (!im.src) return
+  const alpha = Math.min(1, it.alpha * (st.fo > 0 ? st.fo : 1))
+  if (alpha <= 0) return
+  // y is up in the scene and down in the image: flip, then fill the local box.
+  ctx.setTransform(M[0], M[1], -M[2], -M[3], M[4], M[5])
+  ctx.globalAlpha = alpha
+  const [nw, nh] = sourceSize(im.src)
+  const [x0, y0, x1, y1] = im.crop || [0, 0, 1, 1]
+  const drawnPx = Math.hypot(M[0], M[1]) * im.w
+  let img = im.src, k = 1
+  if (!im.live && nw && nh) ({ img, k } = downscaled(im.src, drawnPx / (nw * (x1 - x0))))
+  const sx = x0 * nw * k, sy = (1 - y1) * nh * k, sw = (x1 - x0) * nw * k, sh = (y1 - y0) * nh * k
+  const r = im.radius || 0
+  const box = r > 0 || im.border ? roundBox(im.w, im.h, r) : null
+  const draw = () => {
+    try {
+      if (nw && nh) ctx.drawImage(img, sx, sy, sw, sh, -im.w / 2, -im.h / 2, im.w, im.h)
+      else ctx.drawImage(img, -im.w / 2, -im.h / 2, im.w, im.h)
+    } catch { /* not decoded yet */ }
+  }
+  if (it.shadow) {
+    if (r > 0) {
+      // The shadow of the rounded box, under the picture.
+      ctx.save()
+      setShadow(ctx, it.shadow, pxPerUnit, alpha)
+      ctx.fillStyle = '#000'
+      ctx.fill(box)
+      ctx.restore()
+    } else {
+      // Square corners: the shadow follows the picture's own transparency.
+      setShadow(ctx, it.shadow, pxPerUnit, alpha)
+      draw()
+      clearShadow(ctx)
+      if (!im.border) return
+    }
+  }
+  if (r > 0) {
+    ctx.save()
+    ctx.clip(box)
+    draw()
+    ctx.restore()
+  } else if (!it.shadow) draw()
+  if (im.border && im.border.width > 0) {
+    ctx.strokeStyle = im.border.color
+    ctx.lineWidth = (im.border.width * 0.01) / matScale(it.m)
+    ctx.stroke(box)
+  }
+}
+
 function drawItem(ctx: CanvasRenderingContext2D, it: DrawItem, V: Mat) {
   const st = it.style
   const alpha = it.alpha
   if (alpha <= 0) return
   const M = mul(V, it.m)
+  const pxPerUnit = matScale(V)
   if (it.image) {
-    // y is up in the scene and down in the image: flip, then fill the local box.
-    const im = it.image
-    if (!im.src) return
-    ctx.setTransform(M[0], M[1], -M[2], -M[3], M[4], M[5])
-    ctx.globalAlpha = Math.min(1, alpha * (st.fo > 0 ? st.fo : 1))
-    try { ctx.drawImage(im.src, -im.w / 2, -im.h / 2, im.w, im.h) } catch { /* not ready yet */ }
+    drawImageItem(ctx, it, M, pxPerUnit)
     return
   }
   if (it.text) {
@@ -158,7 +275,9 @@ function drawItem(ctx: CanvasRenderingContext2D, it: DrawItem, V: Mat) {
     ctx.textBaseline = 'middle'
     const lines = t.str.split('\n')
     const x0 = t.left ? (-t.w / 2) * 100 : 0
+    setShadow(ctx, it.shadow, pxPerUnit, op)
     lines.forEach((l, i) => ctx.fillText(l, x0, (i - (lines.length - 1) / 2) * t.em * 120))
+    if (it.shadow) clearShadow(ctx)
     return
   }
   let paths = it.paths
@@ -174,11 +293,15 @@ function drawItem(ctx: CanvasRenderingContext2D, it: DrawItem, V: Mat) {
   // blended points, which simply fall out of the weak cache) is looked up.
   const p2d = hasPath2D ? (it.partial ? buildPath(paths) : cachedPath(paths)) : null
   if (!p2d) trace(ctx, paths)
+  const rule: CanvasFillRule = it.evenodd ? 'evenodd' : 'nonzero'
+  // A shadow is cast by the fill if there is one, else by the stroke.
+  setShadow(ctx, it.shadow, pxPerUnit, Math.max(fillOp, strokeOp))
   if (fillOp > 0) {
     ctx.globalAlpha = Math.min(1, fillOp)
     ctx.fillStyle = st.fc
-    if (p2d) ctx.fill(p2d)
-    else ctx.fill()
+    if (p2d) ctx.fill(p2d, rule)
+    else ctx.fill(rule)
+    if (it.shadow) clearShadow(ctx)
   }
   if (strokeOp > 0) {
     ctx.globalAlpha = Math.min(1, strokeOp)
@@ -187,6 +310,7 @@ function drawItem(ctx: CanvasRenderingContext2D, it: DrawItem, V: Mat) {
     if (p2d) ctx.stroke(p2d)
     else ctx.stroke()
   }
+  if (it.shadow) clearShadow(ctx)
 }
 
 /**

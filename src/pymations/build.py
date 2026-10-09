@@ -12,9 +12,9 @@ When the output ends in ``.html`` (``-o scene.html``) the result is ONE file
 holding all of that (the engine and its fonts only when the scene uses the
 animation module), which also opens straight from disk.
 
-Images the scene loads by a relative path are found in its string literals and
-included: copied beside the page in a folder, packed into a single file. An
-image that is named but not there is a warning, not an error.
+Pictures and sounds the scene names by a relative path are found in its string literals and
+included: copied beside the page in a folder, packed into a single file. A
+file that is named but not there is a warning, not an error.
 """
 import shutil
 import sys
@@ -79,7 +79,7 @@ def build_single(scene, out, add=(), title=None, say=print):
     say("Built %s (%d KB%s)" % (_short(out), (len(page.encode("utf-8")) + 1023) // 1024,
                                  ", with the animation engine and its fonts" if anim else ""))
     if images:
-        say("  with %d image%s: %s" % (len(images), "" if len(images) == 1 else "s", ", ".join(images)))
+        say("  with %d picture or sound file%s: %s" % (len(images), "" if len(images) == 1 else "s", ", ".join(images)))
     say("One file: open it in a browser, or put it on any website.")
     return out
 
@@ -102,8 +102,8 @@ def _added(scene, add):
 
 
 def scene_images(scene, source, say=print):
-    """(key, file) for each image the scene names by a relative path and that
-    exists beside it. A named image that is not there is reported with ``say``."""
+    """(key, file) for each picture or sound the scene names by a relative path and that
+    exists beside it. A named file that is not there is reported with ``say``."""
     found = []
     for written in pages.image_paths_in_source(source):
         key = pages.packed_key(written)
@@ -112,7 +112,7 @@ def scene_images(scene, source, say=print):
             if key not in (k for k, _ in found):
                 found.append((key, path))
         else:
-            say("Warning: %s loads the image %s, which was not found (looked for %s)."
+            say("Warning: %s names the file %s, which was not found (looked for %s)."
                 % (scene.name, written, _short(path)))
     return found
 
@@ -142,7 +142,7 @@ def _build_scene(scene, out, add, title, say):
     for key, f in scene_images(scene, scene.read_text(encoding="utf-8"), say):
         target = (out / key).resolve()
         if out != target.parent and out not in target.parents:
-            say("Warning: %s loads the image %s, which is outside the scene's folder and was "
+            say("Warning: %s names the file %s, which is outside the scene's folder and was "
                 "not copied. Move it into the scene's folder." % (scene.name, key))
             continue
         if target != f:

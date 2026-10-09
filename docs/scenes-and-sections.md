@@ -170,3 +170,7 @@ wait(2)
 ```
 
 `draw(ctx, t)` is called every frame with the timeline time `t`. The canvas is `resolution` (100) pixels per unit, so a 4 × 3 canvas is drawn at 400 × 300.
+
+## Transitions between sections
+
+A section can start with a transition: `section("Part two", transition="crossfade")`, or `"slide_left"` or `"wipe"`, with `transition_time=0.5` seconds. In the class form, set it on the scene class (`transition = "crossfade"`), or for every scene with `config(transition="crossfade")`. Transitions are a Pymations addition; Manim has none.

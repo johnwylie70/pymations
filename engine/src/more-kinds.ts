@@ -790,12 +790,14 @@ function makeSvg(env: MakeEnv, id: number, kind: string, props: Kw) {
     }
     const gid = w.newId()
     // SVG y runs down; scene y runs up.
-    w.set(newMob(gid, 'svg_part', style, transformPaths(shape, mul([1, 0, 0, -1, 0, 0], M))))
+    w.set(newMob(gid, 'svg_part', style, transformPaths(shape, mul([1, 0, 0, -1, 0, 0], M)), {
+      evenodd: (inherit('fill-rule', a) || '').trim() === 'evenodd',
+    }))
     kids.push(gid)
   }
   put(env, id, kind, props, styleFrom(props), [], { children: kids })
   const b = familyBox(w, id)
-  const ht = num(props.height, 2)
+  const ht = props.width != null && props.height == null ? num(props.width, 2) * ((b[3] - b[1]) / ((b[2] - b[0]) || 1)) : num(props.height, 2)
   const k = b[3] - b[1] > 1e-9 ? ht / (b[3] - b[1]) : 1
   const c = boxCenter(b)
   shiftFamily(w, id, mul(scaleAbout(k, k, [0, 0]), translate(-c[0], -c[1])))
@@ -812,23 +814,83 @@ function makeSvg(env: MakeEnv, id: number, kind: string, props: Kw) {
   }
 }
 
-/** ImageMobject: an image (URL or data URI) drawn in a box; 1080 px is the frame height (Manim's scale_to_resolution). */
+/**
+ * The editor's image operations (remove_background, resize, trace…), run by
+ * the imageops host on the editor window: parent.__cirImages.chain(window,
+ * src, ops, trace) → JSON {kind:'picture', url, width, height} or
+ * {kind:'vector', svg, width, height}. Results are cached there by source and
+ * ops, so a re-run or a recording gets them at once.
+ */
+async function runImageChain(src: unknown, ops: unknown[], trace: unknown): Promise<any> {
+  let api: any = null
+  try { api = (globalThis as any).parent?.__cirImages || (globalThis as any).__cirImages } catch { api = null }
+  if (!api || typeof api.chain !== 'function') throw new Error('Image operations need the Circuitry editor')
+  const r = await api.chain(globalThis, src, ops, trace ?? null)
+  return typeof r === 'string' ? JSON.parse(r) : r
+}
+
+function loadImage(url: string): Promise<HTMLImageElement | null> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = url
+  })
+}
+
+/**
+ * ImageMobject: a picture from a URL / data URI / the host's local URL, an
+ * element Python hands over (4th make argument: an image, bitmap or canvas),
+ * or the result of an op chain (ops) run by the editor first. 1080 px is the
+ * frame height (Manim's scale_to_resolution).
+ */
 function makeImage(env: MakeEnv, id: number, kind: string, props: Kw): void | Promise<void> {
-  const src = String(props.src ?? props.filename_or_array ?? props.url ?? '')
+  const src = props.src ?? props.filename_or_array ?? props.url ?? null
+  const el = props.element as CanvasImageSource | undefined
   const place = (img: CanvasImageSource | null, pw: number, ph: number) => {
     const res = num(props.scale_to_resolution, 1080)
     let h = (ph / res) * env.fh, wd = (pw / res) * env.fh
     if (props.height != null) { const k = num(props.height, h) / (h || 1); h *= k; wd *= k }
     if (props.width != null) { const k = num(props.width, wd) / (wd || 1); h *= k; wd *= k }
-    put(env, id, kind, props, styleFrom({ fill_opacity: 1, ...props }, { sw: 0 }), [], { image: { src: img, w: wd || 1, h: h || 1 } })
+    put(env, id, kind, props, styleFrom({ fill_opacity: 1, ...props }, { sw: 0 }), [], {
+      image: { src: img, w: wd || 1, h: h || 1, fullW: wd || 1, fullH: h || 1 },
+    })
   }
+  const sizeOf = (img: any): [number, number] => [img.naturalWidth || img.width || 1080, img.naturalHeight || img.height || 1080]
+  const ops = Array.isArray(props.ops) ? props.ops : []
+  if (ops.length) {
+    return runImageChain(el ?? src, ops, null).then(async r => {
+      const img = r && r.url ? await loadImage(r.url) : null
+      if (!img) throw new Error('the image from ' + String(ops.map((o: any) => o[0]).join(', ')) + ' could not be loaded')
+      place(img, r.width || img.naturalWidth, r.height || img.naturalHeight)
+    })
+  }
+  if (el) { const [pw, ph] = sizeOf(el); place(el, pw, ph); return }
   if (typeof Image === 'undefined' || !src) { place(null, num(props.px_width, 1080), num(props.px_height, 1080)); return }
-  return new Promise<void>(resolve => {
-    const img = new Image()
-    img.onload = () => { place(img, img.naturalWidth, img.naturalHeight); resolve() }
-    img.onerror = () => { place(null, 1080, 1080); resolve() }
-    img.src = src
+  return loadImage(String(src)).then(img => {
+    if (img) place(img, img.naturalWidth, img.naturalHeight)
+    else place(null, 1080, 1080)
   })
+}
+
+/** SVGMobject from a file's text, an element/string Python hands over, or an image traced to vectors by the editor. */
+function makeSvgFrom(env: MakeEnv, id: number, kind: string, props: Kw): void | Promise<void> {
+  const given = props.svg_element
+  if (given != null) {
+    const text = typeof given === 'string' ? given : (given as any).outerHTML ?? String(given)
+    return makeSvg(env, id, kind, { ...props, svg: text })
+  }
+  if (props.svg == null && (props.image_src != null || props.element != null) && props.trace != null) {
+    const ops = Array.isArray(props.ops) ? props.ops : []
+    return runImageChain(props.element ?? props.image_src, ops, props.trace).then(r => {
+      if (!r || !r.svg) throw new Error('tracing the image gave no shapes')
+      // Sized as the picture itself would be when no height/width is given (ImageMobject(..., trace=True)).
+      const res = num(props.scale_to_resolution, 1080)
+      const height = props.height != null ? props.height : props.width != null ? undefined : ((r.height || 1080) / res) * env.fh
+      makeSvg(env, id, kind, { ...props, svg: r.svg, height })
+    })
+  }
+  return makeSvg(env, id, kind, props)
 }
 
 /* ------------------------------------------------------------- the table */
@@ -922,7 +984,7 @@ export const MORE_KINDS: Record<string, Builder> = {
   riemann_rectangles: (env, id, p, kind) => makeRiemann(env, id, kind, p),
   network_graph: (env, id, p, kind) => makeNetwork(env, id, kind, p, !!p.directed),
   di_graph: (env, id, p, kind) => makeNetwork(env, id, kind, p, true),
-  svg_mobject: (env, id, p, kind) => makeSvg(env, id, kind, p),
+  svg_mobject: (env, id, p, kind) => makeSvgFrom(env, id, kind, p),
   image_mobject: (env, id, p, kind) => makeImage(env, id, kind, p),
 }
 

@@ -483,9 +483,13 @@ export function createAnimEngine(options: EngineOptions = {}) {
     make(id: number, kind: string, props?: unknown, extra?: unknown) {
       run(() => {
         evalClock.t = duration
-        // PycturesCanvas: Python made the canvas element and passes it after the props.
-        if (extra && typeof extra === 'object' && String(kind).replace(/_/g, '').toLowerCase() === 'pycturescanvas') {
-          props = { ...(props as object), canvas: extra }
+        // An element Python hands over after the props: a PycturesCanvas's canvas,
+        // an ImageMobject's picture, or an SVGMobject's traced SVG.
+        if (extra != null) {
+          const k = String(kind).replace(/_/g, '').toLowerCase()
+          if (k === 'pycturescanvas') props = { ...(props as object), canvas: extra }
+          else if (k === 'imagemobject') props = { ...(props as object), element: extra }
+          else if (k === 'svgmobject') props = typeof extra === 'string' || (extra as any).outerHTML ? { ...(props as object), svg_element: extra } : { ...(props as object), element: extra }
         }
         // A traced path keeps its point expression: it is evaluated at every sampled moment.
         const traced = String(kind).toLowerCase().replace(/_/g, '') === 'tracedpath'

@@ -108,9 +108,10 @@ Each animation fills its box, starts when it scrolls into view, and pauses when 
 - **Animations:** `Create`, `Write`, `FadeIn`, `Transform`, `TransformMatchingTex`, `.animate`, `Indicate`, `LaggedStart`, and the rest of Manim's common set, with Manim's rate functions.
 - **Updaters:** `ValueTracker`, `add_updater`, `always_redraw` and `TracedPath`. Most run in the browser, so scrubbing stays exact.
 - **The camera:** `MovingCameraScene` and `self.camera.frame` to zoom and pan.
+- **Sound:** voice-overs, music and sound effects, in step with the scrubber.
 - **Pyctures drawing:** a scene can paint a background with [Pyctures](https://github.com/johnwylie70/pyctures)' `ctx` every frame, or place a Pyctures canvas inside the scene as an object.
 
-3D scenes play flat, in 2D, and there is no video export or sound yet. [Differences from Manim](docs/differences-from-manim.md) has the full list.
+3D scenes play flat, in 2D, and there is no video export yet. [Differences from Manim](docs/differences-from-manim.md) has the full list.
 
 ## Examples
 
@@ -135,7 +136,7 @@ pymations run examples            # a list of them all
 
 ## Docs
 
-Start with [Getting started](docs/getting-started.md), then [scenes and sections](docs/scenes-and-sections.md), [shapes](docs/shapes.md), [text and maths](docs/text-and-maths.md), [graphs](docs/graphs.md), [animations](docs/animations.md), [updaters](docs/updaters.md), [layout](docs/layout.md), [colours](docs/colours.md) and [the camera](docs/camera.md). [Building pages](docs/building-pages.md) covers sharing, and [Differences from Manim](docs/differences-from-manim.md) what runs differently. Tutorials are in [docs/tutorials](docs/tutorials).
+Start with [Getting started](docs/getting-started.md), then [scenes and sections](docs/scenes-and-sections.md), [shapes](docs/shapes.md), [text and maths](docs/text-and-maths.md), [graphs](docs/graphs.md), [animations](docs/animations.md), [updaters](docs/updaters.md), [layout](docs/layout.md), [colours](docs/colours.md), [the camera](docs/camera.md), [sound](docs/sound.md) and [titles and callouts](docs/presentation.md). [Building pages](docs/building-pages.md) covers sharing, and [Differences from Manim](docs/differences-from-manim.md) what runs differently. Tutorials are in [docs/tutorials](docs/tutorials).
 
 ## Pymations in Circuitry Studio
 

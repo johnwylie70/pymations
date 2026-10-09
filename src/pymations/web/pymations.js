@@ -68,12 +68,13 @@ function prop(obj, name) {
 
 // ---------------------------------------------------------------- images by relative path
 
-/** A relative path to an image: no scheme, not absolute, an image extension (pages.IMAGE_PATH). */
-const IMAGE_PATH = /^(?![a-z][a-z0-9+.-]*:|\/)(?:\.\/)?[^\s"'<>?#]+\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i
+/** A relative path to an image or a sound: no scheme, not absolute, a known extension (pages.IMAGE_PATH). */
+const IMAGE_PATH = /^(?![a-z][a-z0-9+.-]*:|\/)(?:\.\/)?[^\s"'<>?#]+\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac)$/i
 export function isRelativeImagePath(s) { return typeof s === 'string' && s.length < 300 && IMAGE_PATH.test(s) }
 export const IMAGE_TYPES = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
 }
 /** The key an image is packed under: as written, without a leading "./". */
 const packedKey = (s) => s.replace(/^(\.\/)+/, '')
@@ -819,6 +820,151 @@ function measureSwitch(el) {
 
 let activeScene = null
 
+
+// ---------------------------------------------------------------- sound
+
+/**
+ * SOUND (add_sound, music). The engine keeps the list (engine.sounds: {src,
+ * t0, volume, fade_in, fade_out, loop, t1?}); the page plays it with WebAudio,
+ * locked to the player's clock: playing schedules every sound from the
+ * player's time, a seek or a drift restarts them from there, and pausing
+ * silences them. Each file is decoded once per page, shared with the engine's
+ * wait_for_sound (window.__cirSoundDuration).
+ */
+const decoded = new Map()     // src -> Promise<AudioBuffer>
+const buffers = new Map()     // src -> AudioBuffer, once decoded
+function decodeSound(src) {
+  let p = decoded.get(src)
+  if (!p) {
+    p = fetch(src).then((r) => {
+      if (!r.ok) throw new Error('could not read the sound ' + src)
+      return r.arrayBuffer()
+    }).then((data) => {
+      // An offline context decodes without waiting for a tap.
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext
+      return new OAC(2, 1, 48000).decodeAudioData(data)
+    }).then((buf) => { buffers.set(src, buf); return buf })
+    decoded.set(src, p)
+  }
+  return p
+}
+if (typeof window !== 'undefined') window.__cirSoundDuration = (src) => decodeSound(src).then((b) => b.duration)
+
+let audioCtx = null
+function audioContext() {
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return null
+  if (!audioCtx) {
+    audioCtx = new AC()
+    // A browser that blocks sound until a tap: the next tap lets it play.
+    document.addEventListener('pointerdown', () => { if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {}) })
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
+  return audioCtx
+}
+
+class SoundTrack {
+  constructor(player) {
+    this.player = player
+    this.live = []
+    this.key = ''
+    this.seen = -1
+    this.listKey = ''
+    this.at = 0
+    this.from = 0
+    this.pending = new Set()
+  }
+
+  list() { const l = this.player.engine.sounds; return Array.isArray(l) ? l : [] }
+
+  // A signature of the list, recomputed only when the timeline changes.
+  signature() {
+    const e = this.player.engine
+    if (e.version !== this.seen) {
+      this.seen = e.version
+      this.listKey = this.list().map((x) => [x.src, x.t0, x.volume, x.fade_in, x.fade_out, x.loop, x.t1].join(',')).join(';')
+    }
+    return this.listKey
+  }
+
+  stop() {
+    for (const s of this.live) {
+      try { s.node.stop() } catch (e) { /* already stopped */ }
+      try { s.gain.disconnect() } catch (e) { /* already gone */ }
+    }
+    this.live = []
+    this.key = ''
+  }
+
+  start(t) {
+    this.stop()
+    const list = this.list()
+    if (!list.length) return
+    const ctx = audioContext()
+    if (!ctx) return
+    // A small lead, so a sound due now starts on time rather than clipped.
+    this.at = ctx.currentTime + 0.05
+    this.from = t
+    this.key = this.signature()
+    const end = this.player.duration
+    const toCtx = (tau) => this.at + (tau - t)
+    for (const x of list) {
+      if (!x.src) continue
+      const buf = buffers.get(x.src)
+      if (!buf) {
+        if (!this.pending.has(x.src)) {
+          this.pending.add(x.src)
+          decodeSound(x.src).then(() => { if (this.player.playing) this.start(this.player.t) },
+            (e) => this.player.report('sound: ' + ((e && e.message) || e)))
+        }
+        continue
+      }
+      const t0 = +x.t0 || 0
+      let t1 = x.t1 != null ? +x.t1 : x.loop ? end : t0 + buf.duration
+      if (!x.loop) t1 = Math.min(t1, t0 + buf.duration)
+      if (t1 <= t || t1 <= t0) continue
+      const fi = +x.fade_in || 0, fo = +x.fade_out || 0
+      const gainAt = (tau) => {
+        let v = x.volume == null ? 1 : +x.volume
+        if (fi > 0) v *= Math.min(1, Math.max(0, (tau - t0) / fi))
+        if (fo > 0) v *= Math.min(1, Math.max(0, (t1 - tau) / fo))
+        return v
+      }
+      const ts = Math.max(t, t0)
+      const node = ctx.createBufferSource()
+      node.buffer = buf
+      node.loop = !!x.loop
+      const gain = ctx.createGain()
+      node.connect(gain)
+      gain.connect(ctx.destination)
+      gain.gain.setValueAtTime(gainAt(ts), toCtx(ts))
+      const marks = [t1]
+      if (fi > 0 && t0 + fi > ts) marks.push(t0 + fi)
+      if (fo > 0 && t1 - fo > ts) marks.push(t1 - fo)
+      marks.sort((a, b) => a - b)
+      for (const m of marks) if (m > ts && m <= t1) gain.gain.linearRampToValueAtTime(gainAt(m), toCtx(m))
+      let offset = ts - t0
+      if (x.loop && buf.duration > 0) offset %= buf.duration
+      node.start(toCtx(ts), offset)
+      node.stop(toCtx(t1))
+      this.live.push({ node, gain })
+    }
+  }
+
+  /** Each refresh: sounds follow the player, restarting after a seek, a stall or a change. */
+  sync() {
+    const p = this.player
+    if (!p.playing || p.waiting || p.holdUntil || !p.scene.visible || document.hidden) {
+      if (this.live.length || this.key) this.stop()
+      return
+    }
+    if (!this.list().length) { if (this.live.length) this.stop(); return }
+    if (this.signature() !== this.key || !audioCtx) { this.start(p.t); return }
+    const heard = this.from + (audioCtx.currentTime - this.at)
+    if (audioCtx.state === 'running' && Math.abs(heard - p.t) > 0.3) this.start(p.t)
+  }
+}
+
 // ---------------------------------------------------------------- the animation player
 
 const ICON_PLAY = '<svg viewBox="0 0 16 16"><path d="M4 2.5l9.5 5.5L4 13.5z"/></svg>'
@@ -853,6 +999,7 @@ class Player {
     this.ctx = this.canvas.getContext('2d')
     this.tick = this.tick.bind(this)
     this.errors = Object.create(null)
+    this.sound = new SoundTrack(this)
     this.reset()
     this.observer = new ResizeObserver(() => { this.drawn = ''; this.draw() })
     this.observer.observe(this.canvas)
@@ -863,6 +1010,7 @@ class Player {
 
   /** A new run. Python's first command resets the engine itself. */
   reset() {
+    if (this.sound) this.sound.stop()
     cancelAnimationFrame(this.raf)
     Object.assign(this, {
       t: 0, playing: false, started: false, starting: false, waiting: false, last: 0, raf: 0,
@@ -889,6 +1037,7 @@ class Player {
 
   /** Stop the clock (the run was stopped); the picture stays. */
   halt() {
+    this.sound.stop()
     this.playing = false
     cancelAnimationFrame(this.raf)
     this.raf = 0
@@ -951,7 +1100,7 @@ class Player {
   tick(now) {
     this.raf = 0
     const scene = this.scene
-    if (!scene.visible || document.hidden) return   // scene.resume() starts it again
+    if (!scene.visible || document.hidden) { this.sound.stop(); return }   // scene.resume() starts it again
     const dur = this.duration
     this.waiting = false
     if (this.playing) {
@@ -971,6 +1120,7 @@ class Player {
     }
     this.draw()
     this.updateBar()
+    this.sound.sync()
     if (this.playing) this.kick()
   }
 
@@ -1000,6 +1150,7 @@ class Player {
   setPlaying(on) {
     if (on && this.t >= this.duration) this.t = 0
     this.playing = on
+    if (!on) this.sound.stop()
     this.waiting = false
     this.holdUntil = 0
     this.last = 0

@@ -38,13 +38,15 @@ Updaters are recorded as formulas the browser works out every frame, so scrubbin
 ## Not available
 
 - **3D.** `ThreeDScene`, `ThreeDAxes`, `set_camera_orientation` and `move_camera` are accepted and play flat, seen from the front. 3D shapes (surfaces, spheres, cubes, prisms) are not available.
-- **Sound.** `add_sound` prints a note and plays nothing.
 - **Interaction.** `interactive_embed()` and `embed()` do nothing.
 - **Waiting on a condition.** `wait_until(condition)` and `wait(stop_condition=…)` wait for the full time and do not check the condition.
+- **Image operations** (`ImageMobject(..., remove_background=True, resize=…, trace=…)`) work only in Circuitry Studio; a plain `ImageMobject` works everywhere.
 - **Boolean shapes** (`Union`, `Intersection`, `Difference`, `Exclusion`), `ApplyComplexFunction`, `PhaseFlow`, logarithmic axes, and `ImageMobject` from a numpy array (a file name or web address works).
 - `override_animate` and custom `Animation` subclasses that change points in `interpolate_mobject`: the browser draws animations, so Python code that runs per frame of an animation is not called.
 
 ## Small differences
+
+- Sound plays in the browser, in step with the scrubber; see [Sound](sound.md). `gain` is in decibels, the same as Manim's.
 
 - Random numbers come from your Python, so a script using `random` is different each run, the same as in Manim.
 - The picture is fitted into the browser window; its shape stays 16:9 (or your `frame_width` and `frame_height`).

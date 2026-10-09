@@ -23,7 +23,7 @@ export function partsOf(input: TexInput): string[] {
 
 /** The layout key: everything that changes the outlines' shape (font size only scales them). */
 export function layoutKey(input: TexInput): string {
-  return `${input.mode}\u0002${partsOf(input).join('\u0001')}`
+  return `${input.mode}\u0002${lineEnvironment(input)}\u0002${partsOf(input).join('\u0001')}`
 }
 
 /** The full key: layout key plus the size. */
@@ -172,8 +172,10 @@ export const isSeparator = (s: string) => s === '&' || s.startsWith('\\\\')
 /**
  * KaTeX input for the whole call, each part wrapped so its glyphs can be found
  * again. Line breaks or & anywhere (MathTex(a, r"\\", b) in Manim) put the
- * whole thing in the environment Manim uses: align* for MathTex (KaTeX's
- * aligned) and centred lines for Tex (gathered). Separators stay outside the
+ * whole thing in the environment Manim uses (see lineEnvironment): by
+ * default align* for MathTex (right-aligned lines, 1.5 em apart) and center
+ * for Tex (centred lines 1.2 em apart; gathered would add \jot and set maths
+ * at display size). Separators stay outside the
  * wrappers, so a part that is only "\\" has no glyphs, as in Manim.
  */
 export function buildKatexSource(input: TexInput, wrap: boolean): string {
@@ -186,6 +188,25 @@ export function buildKatexSource(input: TexInput, wrap: boolean): string {
         .join(' ')
     : parts.join(' ')
   if (!lines) return body
-  const envName = input.mode === 'text' ? 'gathered' : 'aligned'
-  return `\\begin{${envName}}${body}\\end{${envName}}`
+  const env = lineEnvironment(input)
+  if (env.startsWith('array')) return `\\begin{array}{${env.slice(5)}}${body}\\end{array}`
+  return `\\begin{${env}}${body}\\end{${env}}`
+}
+
+/**
+ * Manim's tex_environment → the KaTeX layout for several lines. Tex: center,
+ * flushleft, flushright (one-column arrays: 1.2 em line step, inline maths at
+ * text size, like LaTeX's own). MathTex: align* (KaTeX's aligned) or, for
+ * gather/center, gathered. Anything else gets the mode's default (Tex center,
+ * MathTex align*): KaTeX has no general way to run an arbitrary environment.
+ */
+export function lineEnvironment(input: TexInput): string {
+  const e = (input.environment || '').trim().replace(/^\\begin\{|\}$/g, '')
+  if (input.mode === 'text') {
+    if (e === 'flushleft') return 'arrayl'
+    if (e === 'flushright') return 'arrayr'
+    return 'arrayc'
+  }
+  if (/^(gather\*?|gathered|center)$/.test(e)) return 'gathered'
+  return 'aligned'
 }

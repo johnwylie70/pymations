@@ -21,6 +21,12 @@ export interface TexInput {
   parts: string[]
   /** Manim's font_size (48 is the default). */
   fontSize: number
+  /**
+   * Manim's tex_environment: how lines (\\) are laid out. Tex: "center"
+   * (default), "flushleft", "flushright". MathTex: "align*" (default), or a
+   * gather/center environment for centred lines. Others fall back to the default.
+   */
+  environment?: string
 }
 
 /** The outlines, centred on the origin: part → glyph → subpaths. */

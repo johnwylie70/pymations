@@ -13,7 +13,7 @@ import { polySub, smoothSub } from './geometry'
 import { setNumberValue } from './kinds'
 import {
   become, boxCenter, copyFamily, critical, family, familyBox, hasGeom, styleFamily,
-  transformFamily, type World,
+  transformFamily, type ImageRef, type World,
 } from './scene'
 import { endPoint, isMobRef, normArgs, num, resolvePoint, resolveTarget, resolveVec, type Kw } from './args'
 import { normColor } from './color'
@@ -361,6 +361,36 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
     },
   },
   set_z: { params: ['z'], run: () => {} },
+  /** Pictures: rounded corners (scene units), a border (Manim stroke width), a crop (fractions, origin bottom-left). */
+  set_corner_radius: { params: ['radius'], run: (w, id, a) => withImages(w, id, im => ({ ...im, radius: num(a.radius ?? a.corner_radius, 0) })) },
+  set_border: {
+    params: ['color', 'width'],
+    run: (w, id, a) => withImages(w, id, im => ({ ...im, border: num(a.width ?? a.stroke_width, 4) > 0 ? { color: normColor(a.color ?? '#FFFFFF', '#FFFFFF'), width: num(a.width ?? a.stroke_width, 4) } : undefined })),
+  },
+  crop: {
+    params: ['box'],
+    run: (w, id, a) => withImages(w, id, im => {
+      const b = (a.box || [0, 0, 1, 1]).map(Number) as [number, number, number, number]
+      const box: [number, number, number, number] = [Math.max(0, b[0]), Math.max(0, b[1]), Math.min(1, b[2]), Math.min(1, b[3])]
+      const fw = im.fullW ?? im.w, fh = im.fullH ?? im.h
+      // The object's size follows the crop (it keeps its scale and centre).
+      const kx = im.w / (fw * ((im.crop ? im.crop[2] - im.crop[0] : 1) || 1)), ky = im.h / (fh * ((im.crop ? im.crop[3] - im.crop[1] : 1) || 1))
+      return { ...im, crop: box, w: fw * (box[2] - box[0]) * kx, h: fh * (box[3] - box[1]) * ky }
+    }),
+  },
+  /** A drop shadow on anything (blur and offset in scene units); blur 0 and no offset removes it. */
+  set_shadow: {
+    params: ['blur', 'offset', 'color', 'opacity'],
+    run: (w, id, a) => {
+      const off = Array.isArray(a.offset) ? a.offset.map(Number) : [0.05, -0.08]
+      const sh = { blur: num(a.blur, 0.2), dx: off[0] || 0, dy: off[1] || 0, color: normColor(a.color ?? '#000000', '#000000'), opacity: num(a.opacity, 0.5) }
+      const none = sh.blur <= 0 && !sh.dx && !sh.dy
+      for (const i of family(w, id)) {
+        const m = w.get(i)
+        if (hasGeom(m)) w.set({ ...m, shadow: none ? undefined : sh })
+      }
+    },
+  },
   /** ApplyMatrix's end state: a 2×2 (or 3×3) matrix about a point (default ORIGIN). */
   apply_matrix: {
     params: ['matrix', 'about_point'],
@@ -451,6 +481,16 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
 }
 
 export const OP_NAMES = Object.keys(OPS)
+
+/** Apply a change to every picture in a family. */
+function withImages(w: World, id: number, f: (im: ImageRef) => ImageRef) {
+  let any = false
+  for (const i of family(w, id)) {
+    const m = w.get(i)
+    if (m.image) { w.set({ ...m, image: f(m.image) }); any = true }
+  }
+  if (!any) throw new Error('this works on images (ImageMobject)')
+}
 
 /** The engine's way to rebuild an object from its make() props (set once by the engine). */
 let remakeHook: ((w: World, id: number, kind: string, props: Kw) => void) | null = null
