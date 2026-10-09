@@ -234,7 +234,11 @@ export class Updaters {
     else deps.make(tmp, r.target, kind, evaluated)
     if (!tmp.has(r.target)) return
     // Keep what the scene did to it (z, opacity changes are rare; position comes from the template).
-    if (old) tmp.update(r.target, { z: old.z })
+    if (old) {
+      tmp.update(r.target, { z: old.z })
+      // A redrawn object stays fixed in the frame / facing the camera if it was (add_fixed_orientation_mobjects).
+      if (old.fixed) for (const i of family(tmp, r.target)) tmp.update(i, { fixed: old.fixed })
+    }
     const mobs = family(tmp, r.target).map(i => tmp.get(i))
     this.redrawCache.set(ck, { key, mobs })
     for (const m of mobs) view.set(m)

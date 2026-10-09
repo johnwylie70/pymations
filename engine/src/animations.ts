@@ -21,10 +21,10 @@ import {
   addToDisplay, become, boxCenter, CAMERA, centerOf, critical, family, familyBox, familyBox3, hasGeom, is3D, isShown, leaves,
   removeFromDisplay, styleFamily, transformFamily, transformFamily3, World, worldP3, type ImageRef, type Mob, type Snap, type Style,
 } from './scene'
-import { endPoint, evalClock, evalValue, isMobRef, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, resolveVec, withPoint, type Kw } from './args'
+import { endPoint, evalClock, evalValue, isMobRef, pointOf3, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, resolveVec, withPoint, type Kw } from './args'
 import type { Box } from './geometry'
-import { camOf, camPatch, runOp, rotationMat, type CamState, type OpEnv } from './ops'
-import { apply3, embed, invert3, IDENT3, lerp3, mul3, proj, rot3, type V3 } from './math3'
+import { camOf, camPatch, runOp, rotationMat, syncCamTrackers, type CamState, type OpEnv } from './ops'
+import { apply3, embed, invert3, IDENT3, lerp3, mul3, proj, rot3, translate3, type V3 } from './math3'
 import { reconcile } from './render3d'
 import { lerpColor, normColor, PURE_YELLOW, YELLOW } from './color'
 import { Frame, lerpStyle, type DrawItem } from './frame'
@@ -84,6 +84,41 @@ interface Leaf {
 }
 
 /** Apply a matrix (as a function of eased alpha) to every drawn part of a target. */
+/** A path's point at a proportion of its 3D length (3D curves, and outlines turned in 3D). */
+function pathAt3(parts: Mob[]): (x: number) => V3 {
+  const pts: V3[] = []
+  for (const m of parts) {
+    if (m.p3 && m.p3.length) {
+      const wp = worldP3(m)
+      for (let k = 0; k < wp.length; k += 3) pts.push([wp[k], wp[k + 1], wp[k + 2]])
+      if (m.closed3 && wp.length >= 6) pts.push([wp[0], wp[1], wp[2]])
+      continue
+    }
+    const M = m.m3 ?? embed(m.m)
+    for (const sp of m.paths) {
+      const P = sp.points
+      for (let k = 0; k + 3 < P.length; k += 3) for (let s = k === 0 ? 0 : 1; s <= 16; s++) {
+        const t = s / 16, u = 1 - t
+        const x = u * u * u * P[k][0] + 3 * u * u * t * P[k + 1][0] + 3 * u * t * t * P[k + 2][0] + t * t * t * P[k + 3][0]
+        const y = u * u * u * P[k][1] + 3 * u * u * t * P[k + 1][1] + 3 * u * t * t * P[k + 2][1] + t * t * t * P[k + 3][1]
+        pts.push(apply3(M, x, y, 0))
+      }
+    }
+  }
+  if (!pts.length) return () => [0, 0, 0]
+  const cum = [0]
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]))
+  const L = cum[cum.length - 1]
+  return x => {
+    if (L <= 0) return pts[0]
+    const d = Math.max(0, Math.min(1, x)) * L
+    let lo = 0, hi = cum.length - 1
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] <= d) lo = mid; else hi = mid }
+    const t = (d - cum[lo]) / ((cum[hi] - cum[lo]) || 1)
+    return [0, 1, 2].map(i => pts[lo][i] + (pts[hi][i] - pts[lo][i]) * t) as V3
+  }
+}
+
 function matrixLeaf(ids: number[], M: (a: number) => Mat, alphaOf?: (a: number) => number): Leaf['apply'] {
   return (alpha, f, rate, lag) => {
     const n = ids.length
@@ -671,6 +706,24 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
     case 'move_along_path': {
       const id = tgt(), ids = leaves(w, id), c = centerOf(w, id)
       const pathId = resolveTarget(w, a.path)
+      const pathParts = leaves(w, pathId).map(i => w.get(i))
+      if (is3D(w, id) || pathParts.some(m => m.p3 || m.m3)) {
+        // In 3D: the object's 3D centre follows the path's 3D points (Manim: move_to(point_from_proportion)).
+        const c3 = pointOf3(w, id, 'center'), at3 = pathAt3(pathParts)
+        const T = (x: number) => { const p = at3(x); return translate3(p[0] - c3[0], p[1] - c3[1], p[2] - c3[2]) }
+        return L({
+          apply: (alpha, f, rate) => {
+            const M = T(rate(alpha))
+            for (const pid of ids) {
+              const o = f.get(pid)
+              if (!o) continue
+              o.m3 = mul3(M, reconcile(o.m, o.m3 ?? f.scene.mobs.get(pid).m3) ?? embed(o.m))
+              o.m = proj(o.m3)
+            }
+          },
+          end: v => transformFamily3(v, id, T(1)),
+        })
+      }
       const paths: Subpath[] = []
       for (const i of leaves(w, pathId)) paths.push(...worldPaths(w.get(i)))
       const at = (x: number): Mat => { const p = pointAt(paths, x); return translate(p[0] - c[0], p[1] - c[1]) }
@@ -912,7 +965,7 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
           const x = rate(alpha)
           o.cam = lerpCam(o.cam ?? c0, c1, x)
         },
-        end: v => { const m = v.get(CAMERA); v.update(CAMERA, { data: { ...(m.data || {}), cam: c1 } }) },
+        end: v => { const m = v.get(CAMERA); v.update(CAMERA, { data: { ...(m.data || {}), cam: c1 } }); syncCamTrackers(v) },
       })
     }
 

@@ -1,8 +1,9 @@
 /**
  * The 3D camera (Contract v4), Manim's ThreeDCamera: rotate the scene by
  * phi/theta/gamma about frame_center, divide by depth (focal_distance
- * perspective), zoom, then sort what is drawn back to front (painter's
- * algorithm, by each part's centre) and shade faces from the light source.
+ * perspective), zoom, then sort the shaded parts back to front (painter's
+ * algorithm, by each part's bounding-box centre) and light each face with
+ * Manim's corner-to-corner gradient.
  *
  * WHAT IS CACHED: flat objects (text, pictures, 2D shapes turned in 3D) are
  * drawn through one affine map per object, built from where three of their
@@ -50,20 +51,41 @@ export function projector(cam: CamState | null): Projector {
   }
 }
 
-/** Brighten or darken a colour by Manim's light factor (0.5·(n·l)³, halved when negative). */
-function shade(hex: string, n: V3, centre: V3): string {
-  const rgb = parseColor(hex)
-  if (!rgb) return hex
-  const l: V3 = [LIGHT[0] - centre[0], LIGHT[1] - centre[1], LIGHT[2] - centre[2]]
+/** Manim's get_shaded_rgb: rgb (0–1) + 0.5·(n·to_light)³, halved when negative (not clipped). */
+export function shadeRGB(rgb: V3, point: V3, n: V3): V3 {
+  const l: V3 = [LIGHT[0] - point[0], LIGHT[1] - point[1], LIGHT[2] - point[2]]
   const ll = Math.hypot(...l) || 1
   let f = 0.5 * Math.pow((n[0] * l[0] + n[1] * l[1] + n[2] * l[2]) / ll, 3)
   if (f < 0) f *= 0.5
-  const c = (v: number) => Math.max(0, Math.min(255, Math.round(v + f * 255))).toString(16).padStart(2, '0')
-  return '#' + c(rgb[0]) + c(rgb[1]) + c(rgb[2])
+  return [rgb[0] + f, rgb[1] + f, rgb[2] + f]
+}
+
+function shade(hex: string, n: V3, point: V3): string {
+  const rgb = parseColor(hex)
+  if (!rgb) return hex
+  const r = shadeRGB([rgb[0] / 255, rgb[1] / 255, rgb[2] / 255], point, n)
+  const c = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0')
+  return '#' + c(r[0]) + c(r[1]) + c(r[2])
+}
+
+/**
+ * The two corners Manim's 3D gradient runs between (get_3d_vmob_start_corner /
+ * end_corner) for a polygon of corners: the first corner, and the point at
+ * index (4n // 6)·3 of its cubic points (n straight curves of 4 points each).
+ */
+export function gradientCorners(w: number[]): { start: V3; end: V3 } {
+  const n = w.length / 3
+  const idx = Math.floor((4 * n) / 6) * 3
+  const c = Math.floor(idx / 4) % n, k = idx % 4, d = (c + 1) % n
+  const t = k / 3
+  return {
+    start: [w[0], w[1], w[2]],
+    end: [0, 1, 2].map(i => w[3 * c + i] + (w[3 * d + i] - w[3 * c + i]) * t) as V3,
+  }
 }
 
 /** Newell's method: the unit normal of a polygon (world coordinates). */
-function normal(w: number[]): V3 {
+export function normal(w: number[]): V3 {
   let nx = 0, ny = 0, nz = 0
   const n = w.length / 3
   for (let i = 0; i < n; i++) {
@@ -108,45 +130,71 @@ export function reconcile(m2: Mat, m3: Mat3 | undefined): Mat3 | undefined {
 
 interface Prepared {
   it: DrawItem
-  depth: number
+  /** Camera-space z of the part's bounding-box centre; null = drawn after every shaded part, in scene order (Manim's z_key = inf). */
+  depth: number | null
   draw(ctx: CanvasRenderingContext2D, V: Mat): void
+}
+
+/** Camera-space z of a point (Manim's rot_matrix · p; the order is all that matters). */
+function camZ(P: Projector, x: number, y: number, z: number): number {
+  return P.p(x, y, z)[2]
 }
 
 /**
  * Draw items through the camera. `flat2D` draws one flat item with a 2D map
  * (the renderer's own drawItem, so text, pictures, shadows and partial paths
  * behave as in 2D).
+ *
+ * ORDER, as Manim's ThreeDCamera: parts shaded in 3D (faces) are sorted by the
+ * camera-space depth of their bounding-box centre, farthest first; everything
+ * else (axes, text, 3D curves, fixed-in-frame objects) is drawn after them, in
+ * scene order.
  */
 export function render3D(ctx: CanvasRenderingContext2D, items: DrawItem[], V: Mat, cam: CamState | null,
   flat2D: (it: DrawItem, V: Mat) => void) {
   const P = projector(cam)
   const prepared: Prepared[] = []
-  const hud: DrawItem[] = []
   for (const it of items) {
-    if (it.fixed === 'frame' && P.three) { hud.push(it); continue }
+    if (it.fixed === 'frame' && P.three) {
+      prepared.push({ it, depth: null, draw: (_g, VV) => flat2D({ ...it, m3: undefined }, VV) })
+      continue
+    }
     if (it.p3 && it.p3.length) {
       // A 3D polygon or curve: every point through the camera.
       const M = it.m3 ?? embed(it.m)
       let wpts: number[] = []
       for (let k = 0; k < it.p3.length; k += 3) wpts.push(...apply3(M, it.p3[k], it.p3[k + 1], it.p3[k + 2]))
       const full = wpts
-      if (it.partial) wpts = partialPoly(wpts, it.partial[0], it.partial[1], !!it.closed3)
+      if (it.partial) {
+        // Nothing of it drawn yet (a Create not started on this piece): nothing, not a round-capped dot.
+        if (it.partial[1] - it.partial[0] <= 1e-9) continue
+        wpts = partialPoly(wpts, it.partial[0], it.partial[1], !!it.closed3)
+      }
       if (wpts.length < 6) continue
       const scr: number[] = []
-      let depth = 0
       for (let k = 0; k < wpts.length; k += 3) {
         const q = P.p(wpts[k], wpts[k + 1], wpts[k + 2])
         scr.push(q[0], q[1])
-        depth += q[2]
       }
-      depth /= wpts.length / 3
-      let st = it.style
-      if (it.shade3 && P.three && full.length >= 9) {
-        const n = normal(full), c: V3 = [0, 0, 0]
-        for (let k = 0; k < full.length; k += 3) { c[0] += full[k]; c[1] += full[k + 1]; c[2] += full[k + 2] }
-        const cnt = full.length / 3
-        c[0] /= cnt; c[1] /= cnt; c[2] /= cnt
-        st = { ...st, fc: shade(st.fc, n, c), sc: shade(st.sc, n, c) }
+      const st = it.style
+      const shaded = !!it.shade3 && P.three
+      let depth: number | null = null
+      // Shaded faces: Manim's gradient from the start corner to the end corner, each lit by the light.
+      let grad: { a: V3; b: V3; fill: [string, string]; stroke: [string, string] } | null = null
+      if (shaded) {
+        let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
+        for (let k = 0; k < full.length; k += 3) {
+          x0 = Math.min(x0, full[k]); x1 = Math.max(x1, full[k]); y0 = Math.min(y0, full[k + 1]); y1 = Math.max(y1, full[k + 1]); z0 = Math.min(z0, full[k + 2]); z1 = Math.max(z1, full[k + 2])
+        }
+        depth = camZ(P, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        if (full.length >= 9) {
+          const n = normal(full), { start, end } = gradientCorners(full)
+          grad = {
+            a: P.p(...start), b: P.p(...end),
+            fill: [shade(st.fc, n, start), shade(st.fc, n, end)],
+            stroke: [shade(st.sc, n, start), shade(st.sc, n, end)],
+          }
+        }
       }
       const closed = !!it.closed3 && !it.partial
       prepared.push({
@@ -160,10 +208,16 @@ export function render3D(ctx: CanvasRenderingContext2D, items: DrawItem[], V: Ma
           g.moveTo(scr[0], scr[1])
           for (let k = 2; k < scr.length; k += 2) g.lineTo(scr[k], scr[k + 1])
           if (closed) g.closePath()
-          if (fillOp > 0) { g.globalAlpha = Math.min(1, fillOp); g.fillStyle = st.fc; g.fill() }
+          const paint = (pair: [string, string]): string | CanvasGradient => {
+            if (!grad || pair[0] === pair[1]) return pair[0]
+            const lg = g.createLinearGradient(grad.a[0], grad.a[1], grad.b[0], grad.b[1])
+            lg.addColorStop(0, pair[0]); lg.addColorStop(1, pair[1])
+            return lg
+          }
+          if (fillOp > 0) { g.globalAlpha = Math.min(1, fillOp); g.fillStyle = grad ? paint(grad.fill) : st.fc; g.fill() }
           if (strokeOp > 0) {
             g.globalAlpha = Math.min(1, strokeOp)
-            g.strokeStyle = st.sc
+            g.strokeStyle = grad ? paint(grad.stroke) : st.sc
             // Manim keeps stroke widths in frame units: scale by the camera's zoom only.
             g.lineWidth = (st.sw * 0.01) * (cam && cam.three_d ? cam.zoom : 1)
             g.stroke()
@@ -186,24 +240,34 @@ export function render3D(ctx: CanvasRenderingContext2D, items: DrawItem[], V: Ma
       o2 = P.p(o[0], o[1], o[2]); x2 = P.p(ex[0], ex[1], ex[2]); y2 = P.p(ey[0], ey[1], ey[2])
     }
     const A: Mat = [x2[0] - o2[0], x2[1] - o2[1], y2[0] - o2[0], y2[1] - o2[1], o2[0], o2[1]]
-    // Depth: of the item's centre (bbox of its outline), as Manim sorts by centre.
-    let cdepth = o2[2]
-    if (it.paths.length) {
-      let sx = 0, sy = 0, n = 0
-      for (const sp of it.paths) for (const p of sp.points) { sx += p[0]; sy += p[1]; n++ }
-      if (n) { const c = apply3(M3, sx / n, sy / n, 0); cdepth = P.p(c[0], c[1], c[2])[2] }
-    }
     // Stroke widths stay as in 2D: undo the map's own scale, which drawItem divides by.
-    const keep = matScale(it.m) || 1, now = matScale(A) || 1
-    const flat = { ...it, m: A, m3: undefined, style: it.style.sw > 0 ? { ...it.style, sw: it.style.sw * (now / keep) } : it.style }
-    prepared.push({ it, depth: cdepth, draw: (_g, VV) => flat2D(flat, VV) })
+    // The item's own scale is that of its plane in 3D (|ex × ey|): its 2D front view collapses when it is turned edge-on (a z axis).
+    const ux = ex[0] - o[0], uy = ex[1] - o[1], uz = ex[2] - o[2], vx = ey[0] - o[0], vy = ey[1] - o[1], vz = ey[2] - o[2]
+    const keep = Math.sqrt(Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)) || 1, now = matScale(A) || 1
+    let style = it.style.sw > 0 ? { ...it.style, sw: it.style.sw * (now / keep) } : it.style
+    let depth: number | null = null
+    if (it.shade3 && P.three) {
+      // A flat shape shaded in 3D (set_shade_in_3d): sorted with the faces, lit at its centre.
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+      for (const sp of it.paths) for (const p of sp.points) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]) }
+      const c = x0 <= x1 ? apply3(M3, (x0 + x1) / 2, (y0 + y1) / 2, 0) : o
+      depth = camZ(P, c[0], c[1], c[2])
+      const u: V3 = [ex[0] - o[0], ex[1] - o[1], ex[2] - o[2]], v: V3 = [ey[0] - o[0], ey[1] - o[1], ey[2] - o[2]]
+      const n: V3 = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+      const nl = Math.hypot(...n) || 1
+      const nn: V3 = [n[0] / nl, n[1] / nl, n[2] / nl]
+      style = { ...style, fc: shade(style.fc, nn, c), sc: shade(style.sc, nn, c) }
+    }
+    const flat = { ...it, m: A, m3: undefined, style }
+    prepared.push({ it, depth, draw: (_g, VV) => flat2D(flat, VV) })
   }
   if (P.three) {
-    // Back to front; ties keep the scene's order.
+    // Shaded parts back to front (ties keep the scene's order), then the rest in scene order.
     const order = new Map(prepared.map((p, i) => [p, i]))
-    prepared.sort((a, b) => a.depth - b.depth || order.get(a) - order.get(b))
+    prepared.sort((a, b) => {
+      if (a.depth == null || b.depth == null) return a.depth == null && b.depth == null ? order.get(a) - order.get(b) : a.depth == null ? 1 : -1
+      return a.depth - b.depth || order.get(a) - order.get(b)
+    })
   }
   for (const p of prepared) p.draw(ctx, V)
-  // Fixed-in-frame objects: flat on screen, on top.
-  for (const it of hud) flat2D({ ...it, m3: undefined }, V)
 }

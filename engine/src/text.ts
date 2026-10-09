@@ -101,14 +101,49 @@ function fontFaceName(key: string): string {
 
 let opentypePromise: Promise<any> | null = null
 
+/**
+ * A network load that never answers (no response, no error) becomes a real
+ * error after this long, so ready() settles. Generous: a first load on a slow
+ * link can legitimately take a while, and slow is not failed.
+ */
+export const NET_TIMEOUT_MS = 120000
+
+/** A bundle file's URL with the host's cache-busting ?v= (globalThis.__cirAnimVersion), when it sets one. */
+export function versioned(url: string): string {
+  const v = (globalThis as any).__cirAnimVersion
+  return v == null || v === '' ? url : url + (url.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(String(v))
+}
+
+/** fetch + the whole body, failing (not hanging) when nothing arrives within NET_TIMEOUT_MS. */
+export async function fetchBuffer(url: string): Promise<ArrayBuffer> {
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timer = setTimeout(() => ctl?.abort(), NET_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, ctl ? { signal: ctl.signal } : undefined)
+    if (!res.ok) throw new Error(`could not load ${url} (${res.status})`)
+    return await res.arrayBuffer()
+  } catch (e) {
+    if (ctl?.signal.aborted) throw new Error(`${url} did not load within ${NET_TIMEOUT_MS / 1000} s`)
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Load a classic script once (checks the global first, so two loaders never double up). */
 export function loadScriptOnce(url: string, globalName: string): Promise<any> {
   const g = globalThis as any
   if (g[globalName]) return Promise.resolve(g[globalName])
   if (typeof document === 'undefined') return Promise.reject(new Error('no document to load ' + url))
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${url} did not load within ${NET_TIMEOUT_MS / 1000} s`)), NET_TIMEOUT_MS)
+    const ok = resolve, fail = reject
+    resolve = (v: any) => { clearTimeout(timer); ok(v) }
+    reject = (e: any) => { clearTimeout(timer); fail(e) }
     // The TeX outliner loads the same file; wait on its tag rather than add another.
-    const file = url.slice(url.lastIndexOf('/') + 1)
+    // Compare file names without any ?v= query, on both sides.
+    const path = url.split('?')[0]
+    const file = path.slice(path.lastIndexOf('/') + 1)
     const existing = Array.from(document.scripts).find(s => s.src && s.src.split('?')[0].endsWith('/' + file)) || null
     const el = existing || document.createElement('script')
     const done = () => (g[globalName] ? resolve(g[globalName]) : reject(new Error(globalName + ' did not load')))
@@ -149,12 +184,11 @@ export class TextOutliner {
 
   private async fetchFont(key: string): Promise<OtFont | null> {
     if (!this.base || typeof fetch === 'undefined') return null
-    if (!opentypePromise) opentypePromise = loadScriptOnce(this.base + 'opentype.min.js', 'opentype')
+    // A failed load is not remembered, so the next text tries again.
+    if (!opentypePromise) opentypePromise = loadScriptOnce(versioned(this.base + 'opentype.min.js'), 'opentype').catch(e => { opentypePromise = null; throw e })
     const ot = await opentypePromise
-    const url = key.startsWith('url:') ? key.slice(4) : this.base + 'fonts/' + FILES[key]
-    const res = await fetch(url)
-    if (!res.ok) throw new Error('font ' + res.status)
-    const buf = await res.arrayBuffer()
+    const url = key.startsWith('url:') ? key.slice(4) : versioned(this.base + 'fonts/' + FILES[key])
+    const buf = await fetchBuffer(url)
     // A font file of the script's own: also a FontFace, so the fillText fallback uses it too.
     if (key.startsWith('url:') && typeof FontFace !== 'undefined' && typeof document !== 'undefined') {
       try {

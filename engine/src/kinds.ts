@@ -989,7 +989,8 @@ export const BUILDERS: Record<string, Builder> = {
   text: (env, id, p, kind) => makeText(env, id, kind, p, String(p.text ?? '')),
   decimal_number: (env, id, p, kind) => makeNumber(env, id, kind, p),
   value_tracker: (env, id, p, kind) => {
-    put(env, id, kind, p, styleFrom(p), [], { data: { value: num(p.value, 0) } })
+    // A camera tracker (camera.phi_tracker …) also names the camera setting it drives.
+    put(env, id, kind, p, styleFrom(p), [], { data: { value: num(p.value, 0), ...(p.camera != null ? { camera: String(p.camera) } : {}) } })
   },
   /** Variable: "label = " then a DecimalNumber ([0] label, [1] number), as Manim's Variable. */
   variable: (env, id, p, kind) => {

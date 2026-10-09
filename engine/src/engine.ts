@@ -33,7 +33,7 @@ import {
   type Mob, type Snap,
 } from './scene'
 import { deref, evalClock, evalValue, isMobRef, normArgs, num, readValue, resolvePoint, resolveTarget } from './args'
-import { camOf, runOp, OP_NAMES, setRemake, type CamState, type OpEnv } from './ops'
+import { CAM_KEYS, camOf, runOp, OP_NAMES, setRemake, syncCamTrackers, trackerToCam, type CamState, type OpEnv } from './ops'
 import {
   make as makeKind, KIND_NAMES, setCanvasFactory, setNumberValue, setSharedText, type MakeEnv, type TexFn,
 } from './kinds'
@@ -168,11 +168,26 @@ export function createAnimEngine(options: EngineOptions = {}) {
     if (typeof console !== 'undefined') console.error('[pyctures.anim]', msg)
   }
 
+  /**
+   * A step still waiting on a load after NOTICE_AFTER_MS gets one non-fatal
+   * notice (takeNotices()): slow is not failed, so it keeps waiting. A load
+   * that never answers fails at the network layer (NET_TIMEOUT_MS in text.ts),
+   * as a real error.
+   */
+  const NOTICE_AFTER_MS = 30000
+  let notices: Array<{ message: string }> = []
+  function noticeIfSlow(p: Promise<unknown>) {
+    const my = gen
+    const timer = setTimeout(() => { if (my === gen) notices.push({ message: 'still loading fonts, equations or pictures…' }) }, NOTICE_AFTER_MS)
+    p.then(() => clearTimeout(timer), () => clearTimeout(timer))
+  }
+
   function exec(fn: () => unknown, line: number) {
     curLine = line
     const r = fn() as Promise<unknown> | undefined
     if (r && typeof r.then === 'function') {
       const my = gen
+      noticeIfSlow(r)
       pending = r.then(() => changed(), e => report(e, line)).then(() => {
         if (my !== gen) return
         pending = null
@@ -276,6 +291,10 @@ export function createAnimEngine(options: EngineOptions = {}) {
     for (const e of events) if (!e.end) e.fn(bw)
     const before = bw.snapshot()
     for (const e of events) e.fn(w)
+    // A camera tracker the play moved leaves the camera where it ended.
+    for (const [id, m] of w.mobs) {
+      if (m.kind === 'value_tracker' && m.data?.camera && pre.mobs.get(id)?.data?.value !== m.data.value) trackerToCam(w, id)
+    }
     if (node.run > 0) {
       const seg = { t0: duration, t1: duration + node.run, before, node }
       segments.push(seg)
@@ -315,6 +334,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
     const cam = camAt(camOf(w), seg.t1, seg)
     const m = w.get(CAMERA)
     w.update(CAMERA, { data: { ...(m.data || {}), cam } })
+    syncCamTrackers(w)
   }
 
   function bake(seg: Segment) {
@@ -404,6 +424,13 @@ export function createAnimEngine(options: EngineOptions = {}) {
     const seg = segmentAt(t)
     const f = new Frame(seg ? seg.before : w.snapshot())
     if (seg && seg.node) seg.node.frame(t - seg.t0, f)
+    // A camera tracker being animated (camera.phi_tracker.animate.set_value …) moves the camera with it.
+    if (seg) for (const [id, o] of [...f.over]) {
+      const key = o.value != null ? CAM_KEYS[f.scene.mobs.get(id)?.data?.camera] : undefined
+      if (!key) continue
+      const c = f.get(CAMERA)
+      if (c) c.cam = { ...(c.cam ?? camOf(f.scene)), [key]: o.value }
+    }
     if (seg && (ambient.length || illusion.length)) {
       const o = f.get(CAMERA)
       if (o) o.cam = camAt(o.cam ?? camOf(f.scene), t, seg)
@@ -453,7 +480,8 @@ export function createAnimEngine(options: EngineOptions = {}) {
       }
       for (const o of live.ops.values()) {
         if (!view.has(o.target)) continue
-        try { runOp(view, o.target, o.name, deref(view, o.args), opEnv()) ; touched.push(o.target) } catch { /* skip */ }
+        // Through runOps, so an object template in the args (a Python-run always_redraw's become) is built first.
+        try { touched.push(...runOps(view, [[o.name, o.args, o.target]], null, d)) } catch { /* skip */ }
       }
     }
     touched.push(...updaters.apply(view, t, seg, deps()))
@@ -476,7 +504,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
       const same = famV.length === famB.length && famV.every((id, i) => {
         if (id !== famB[i]) return false
         const a = view.get(id), b = base.mobs.get(id)
-        return a.paths === b.paths && a.text === b.text && a.image === b.image
+        return a.paths === b.paths && a.p3 === b.p3 && a.text === b.text && a.image === b.image
       })
       if (same) {
         for (const id of famV) {
@@ -495,6 +523,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
         const alpha = o.alpha
         o.replace = famV.map(id => view.get(id)).filter(hasGeom).map((m: Mob) => ({
           paths: m.paths, m: m.m, style: m.style, alpha, partial: null, z: m.z, text: m.text, image: m.image, shadow: m.shadow, evenodd: m.evenodd,
+          m3: m.m3, p3: m.p3, closed3: m.closed3, shade3: m.shade3, fixed: m.fixed,
         }))
       }
     }
@@ -549,6 +578,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
       duration = 0
       sections = []
       errors = []
+      notices = []
       updaters.reset()
       live.ops.clear()
       live.values.clear()
@@ -863,6 +893,12 @@ export function createAnimEngine(options: EngineOptions = {}) {
       const e = errors
       errors = []
       return e
+    },
+    /** Non-fatal notices for the log (a load still going after 30 s), handed over once. */
+    takeNotices(): Array<{ message: string }> {
+      const n = notices
+      notices = []
+      return n
     },
     get errors() { return errors.slice() },
     get duration() { return duration },

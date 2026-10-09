@@ -379,12 +379,18 @@ export function readValue(w: World, id: number, what: string, args: unknown[] = 
     case 'height': return b[3] - b[1]
     case 'x': return boxCenter(b)[0]
     case 'y': return boxCenter(b)[1]
-    case 'z': return 0
+    case 'z': { const b3 = familyBox3(w, id); return (b3[2] + b3[5]) / 2 }
+    case 'depth': { const b3 = familyBox3(w, id); return b3[5] - b3[2] }
     case 'top': case 'bottom': case 'left': case 'right':
       return vec3(pointOf(w, id, name))
     case 'corner': case 'critical_point': case 'edge_center':
       return vec3(pointOf(w, id, arg))
-    case 'start': case 'end': return vec3(endPoint(w, id, name))
+    case 'start': case 'end': {
+      // 3D lines, arrows, cones and curves keep their ends in 3D.
+      const m = w.get(id), e3 = m.data && m.data[name + '3']
+      if (Array.isArray(e3)) return apply3(m.m3 ?? embed(m.m), e3[0], e3[1], e3[2] ?? 0)
+      return vec3(endPoint(w, id, name))
+    }
     case 'len': case 'length_of_children': case 'submobject_count': return w.get(id).children.length
     case 'value': return Number(w.get(id).data?.value ?? 0)
     case 'point_from_proportion': {

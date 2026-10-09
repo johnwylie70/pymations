@@ -4,6 +4,8 @@
  * harness). Each is fetched once per page; parsed fonts are kept for the
  * session, so a re-run only outlines strings it has not seen.
  */
+import { NET_TIMEOUT_MS, fetchBuffer, loadScriptOnce, versioned } from '../text'
+
 
 /* Just the parts of KaTeX and opentype.js we call; both arrive as globals from <script>. */
 export interface KatexLike {
@@ -45,35 +47,31 @@ function baseUrl(): string {
   const g = (globalThis as { __cirAnimBase?: string }).__cirAnimBase
   if (g) return g.endsWith('/') ? g : g + '/'
   // Not configured: fall back to wherever the page loaded KaTeX's stylesheet from.
-  const link = document.querySelector<HTMLLinkElement>('link[href*="katex"][rel="stylesheet"]')
+  const link = typeof document !== 'undefined' ? document.querySelector<HTMLLinkElement>('link[href*="katex"][rel="stylesheet"]') : null
   if (link) return link.href.replace(/[^/]*$/, '')
   return ''
 }
 
-const scripts = new Map<string, Promise<void>>()
+/** A file in the bundle folder, with the host's cache-busting version (text.ts `versioned`, shared with the engine). */
+export function assetUrl(path: string): string {
+  return versioned(baseUrl() + path)
+}
 
-/* Loads a script once. A tag for the same file added by someone else (the engine loads opentype.js for text) is waited on, not duplicated. */
-function loadScript(url: string, ready: () => boolean): Promise<void> {
-  let p = scripts.get(url)
+/*
+ * Scripts and fonts go through the engine's loaders (text.ts): both fail with
+ * a real error after NET_TIMEOUT_MS instead of waiting forever on a hung
+ * request, and loadScriptOnce waits on a tag the engine already added rather
+ * than adding a second. The maps below keep one load per file; a failure is
+ * dropped so the next TeX call tries again.
+ */
+const scripts = new Map<string, Promise<unknown>>()
+
+function loadScript(path: string, globalName: string): Promise<unknown> {
+  let p = scripts.get(path)
   if (!p) {
-    const file = url.slice(url.lastIndexOf('/') + 1)
-    const existing = Array.from(document.scripts).find((s) => s.src && s.src.split('?')[0].endsWith('/' + file))
-    p = new Promise<void>((resolve, reject) => {
-      if (existing) {
-        if (ready()) return resolve()
-        existing.addEventListener('load', () => resolve())
-        existing.addEventListener('error', () => reject(new Error(`Could not load ${existing.src}`)))
-        return
-      }
-      const s = document.createElement('script')
-      s.src = url
-      s.async = true
-      s.onload = () => resolve()
-      s.onerror = () => reject(new Error(`Could not load ${url}`))
-      document.head.appendChild(s)
-    })
-    scripts.set(url, p)
-    p.catch(() => scripts.delete(url))
+    p = loadScriptOnce(assetUrl(path), globalName)
+    scripts.set(path, p)
+    p.catch(() => scripts.delete(path))
   }
   return p
 }
@@ -98,10 +96,20 @@ function ensureCss(): Promise<void> {
       ? Promise.resolve()
       : new Promise<void>((resolve, reject) => {
           const l = document.createElement('link')
+          const timer = setTimeout(
+            () => reject(new Error(`${l.href} did not load within ${NET_TIMEOUT_MS / 1000} s`)),
+            NET_TIMEOUT_MS,
+          )
           l.rel = 'stylesheet'
-          l.href = baseUrl() + 'katex.min.css'
-          l.onload = () => resolve()
-          l.onerror = () => reject(new Error(`Could not load ${l.href}`))
+          l.href = assetUrl('katex.min.css')
+          l.onload = () => {
+            clearTimeout(timer)
+            resolve()
+          }
+          l.onerror = () => {
+            clearTimeout(timer)
+            reject(new Error(`Could not load ${l.href}`))
+          }
           document.head.appendChild(l)
         })
     cssPromise.catch(() => (cssPromise = null))
@@ -109,17 +117,20 @@ function ensureCss(): Promise<void> {
   return cssPromise
 }
 
-type Win = Window & { katex?: KatexLike; opentype?: OpentypeLike }
+type Globals = typeof globalThis & { katex?: KatexLike; opentype?: OpentypeLike }
 
 export async function ensureKatex(): Promise<KatexLike> {
-  const w = window as Win
-  await Promise.all([
-    ensureCss(),
-    w.katex ? null : loadScript(baseUrl() + 'katex.min.js', () => !!w.katex),
-    w.opentype ? null : loadScript(baseUrl() + 'opentype.min.js', () => !!w.opentype),
-  ])
-  if (!w.katex) throw new Error('KaTeX did not load')
-  return w.katex
+  const g = globalThis as Globals
+  await Promise.all([ensureCss(), g.katex ? null : loadScript('katex.min.js', 'katex'), ensureOpentype()])
+  if (!g.katex) throw new Error('KaTeX did not load')
+  return g.katex
+}
+
+async function ensureOpentype(): Promise<OpentypeLike> {
+  const g = globalThis as Globals
+  if (!g.opentype) await loadScript('opentype.min.js', 'opentype')
+  if (!g.opentype) throw new Error('opentype.js did not load')
+  return g.opentype
 }
 
 /* KaTeX's font files: family → the styles it ships. */
@@ -154,12 +165,8 @@ export function loadFont(file: string): Promise<OtFont> {
   let p = fonts.get(file)
   if (!p) {
     p = (async () => {
-      await ensureKatex()
-      const ot = (window as Win).opentype
-      if (!ot) throw new Error('opentype.js did not load')
-      const res = await fetch(baseUrl() + 'fonts/' + file)
-      if (!res.ok) throw new Error(`Could not load font ${file} (${res.status})`)
-      return ot.parse(await res.arrayBuffer())
+      const [ot, buf] = await Promise.all([ensureOpentype(), fetchBuffer(assetUrl('fonts/' + file))])
+      return ot.parse(buf)
     })()
     fonts.set(file, p)
     p.catch(() => fonts.delete(file))

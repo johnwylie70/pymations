@@ -9,14 +9,14 @@
  */
 import type { Pt } from './geometry-types'
 import { apply, IDENTITY, invert, mul, rotateAbout, scaleAbout, translate, type Mat } from './math'
-import { rot3, scale3, translate3, type V3 } from './math3'
+import { apply3, embed, rot3, scale3, translate3, type V3 } from './math3'
 import { polySub, smoothSub } from './geometry'
 import { setNumberValue } from './kinds'
 import {
   become, boxCenter, CAMERA, copyFamily, critical, family, familyBox, familyBox3, hasGeom, is3D, styleFamily,
   transformFamily, transformFamily3, worldP3, type ImageRef, type Style, type World,
 } from './scene'
-import { endPoint, isMobRef, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, resolveVec, type Kw } from './args'
+import { endPoint, evalValue, isMobRef, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, resolveVec, withPoint, type Kw } from './args'
 import { lerpColor, normColor } from './color'
 
 export interface OpEnv {
@@ -188,6 +188,26 @@ export const DEFAULT_CAM: CamState = { three_d: false, phi: 0, theta: -Math.PI /
 
 export function camOf(w: { mobs: Map<number, any> }): CamState {
   return { ...DEFAULT_CAM, ...(w.mobs.get(CAMERA)?.data?.cam || {}) }
+}
+
+/** A camera tracker's name → the camera setting it is. */
+export const CAM_KEYS: Record<string, 'phi' | 'theta' | 'gamma' | 'zoom' | 'focal'> = { phi: 'phi', theta: 'theta', gamma: 'gamma', zoom: 'zoom', focal_distance: 'focal' }
+
+/** Camera trackers (camera.phi_tracker …) take the camera's values (after set_camera_orientation, move_camera, rotation). */
+export function syncCamTrackers(w: World) {
+  const cam = camOf(w)
+  for (const [id, m] of w.mobs) {
+    const key = m.kind === 'value_tracker' && m.data?.camera ? CAM_KEYS[m.data.camera] : undefined
+    if (key && m.data.value !== cam[key]) w.update(id, { data: { ...m.data, value: cam[key] } })
+  }
+}
+
+/** A camera tracker set by value: the camera follows. */
+export function trackerToCam(w: World, id: number) {
+  const m = w.get(id), key = m.data?.camera ? CAM_KEYS[m.data.camera] : undefined
+  if (!key) return
+  const c = w.get(CAMERA)
+  w.update(CAMERA, { data: { ...(c.data || {}), cam: { ...camOf(w), [key]: Number(m.data.value) } } })
 }
 
 /** Camera settings from Manim's kwargs (only those given); frame_center may be a point or an object. */
@@ -369,6 +389,58 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
     run: (w, id, a) => {
       const cam = w.get(CAMERA)
       w.update(CAMERA, { data: { ...(cam.data || {}), cam: { ...camOf(w), ...camPatch(w, a), three_d: true } } })
+      syncCamTrackers(w)
+    },
+  },
+  /** Surface.set_fill_by_checkerboard: face (u, v) gets colors[(u + v) % n]. */
+  set_fill_by_checkerboard: {
+    params: ['colors', 'opacity'],
+    run: (w, id, a) => {
+      const cols = (Array.isArray(a.colors) ? a.colors : [a.colors]).filter(c => c != null).map(c => normColor(c, '#FFFFFF'))
+      if (!cols.length) return
+      for (const i of family(w, id)) {
+        const m = w.get(i), uv = m.data?.uv
+        if (!Array.isArray(uv)) continue
+        w.update(i, { style: { ...m.style, fc: cols[(uv[0] + uv[1]) % cols.length], fo: a.opacity != null ? num(a.opacity, m.style.fo) : m.style.fo } })
+      }
+    },
+  },
+  /** Mobject.apply_function: every point (handles too, as Manim) through a traced function of ["var","p"], at once. */
+  apply_function: {
+    params: ['function'],
+    run: (w, id, a) => {
+      const fn = a.function ?? a.func
+      if (fn == null) throw new Error('apply_function needs a function the preview can trace')
+      const map = (x: number, y: number, z: number): V3 => {
+        const v = withPoint([x, y, z], () => evalValue(w, fn))
+        return typeof v === 'number' ? [v, 0, 0] : [v[0] || 0, v[1] || 0, v[2] || 0]
+      }
+      for (const i of family(w, id)) {
+        const m = w.get(i)
+        if (m.p3 && m.p3.length) {
+          const wp = worldP3(m), out: number[] = []
+          for (let k = 0; k < wp.length; k += 3) out.push(...map(wp[k], wp[k + 1], wp[k + 2]))
+          w.update(i, { p3: out, m3: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], m: IDENTITY })
+          continue
+        }
+        if (!m.paths.length) continue
+        const M3 = m.m3 ?? embed(m.m)
+        const mapped = m.paths.map(sp => ({ closed: sp.closed, points: sp.points.map(p => map(...apply3(M3, p[0], p[1], 0))) }))
+        if (mapped.every(sp => sp.points.every(q => Math.abs(q[2]) < 1e-12))) {
+          w.update(i, { paths: mapped.map(sp => ({ closed: sp.closed, points: sp.points.map(q => [q[0], q[1]] as Pt) })), m: IDENTITY, m3: undefined })
+        } else {
+          // Off the screen plane: the outline becomes a 3D polyline (each curve sampled).
+          const sp = m.paths[0], pts: number[] = []
+          const P = sp.points
+          for (let k = 0; k + 3 < P.length; k += 3) for (let s = k === 0 ? 0 : 1; s <= 8; s++) {
+            const t = s / 8, u = 1 - t
+            const x = u * u * u * P[k][0] + 3 * u * u * t * P[k + 1][0] + 3 * u * t * t * P[k + 2][0] + t * t * t * P[k + 3][0]
+            const y = u * u * u * P[k][1] + 3 * u * u * t * P[k + 1][1] + 3 * u * t * t * P[k + 2][1] + t * t * t * P[k + 3][1]
+            pts.push(...map(...apply3(M3, x, y, 0)))
+          }
+          w.update(i, { paths: [], p3: pts, closed3: !!sp.closed, m3: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], m: IDENTITY })
+        }
+      }
     },
   },
   /** HUD objects in a 3D scene: drawn flat on screen ('frame'), or placed in 3D but never turned ('orientation'). */
@@ -569,10 +641,10 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
     run: (w, id, a) => remake(w, id, Object.fromEntries(Object.entries(a).filter(([, v]) => v != null))),
   },
   /** ValueTracker / DecimalNumber / Integer. */
-  set_value: { params: ['value'], run: (w, id, a) => setNumberValue(w, id, num(a.value, 0)) },
+  set_value: { params: ['value'], run: (w, id, a) => { setNumberValue(w, id, num(a.value, 0)); trackerToCam(w, id) } },
   increment_value: {
     params: ['value'],
-    run: (w, id, a) => setNumberValue(w, id, Number(w.get(id).data?.value ?? 0) + num(a.value ?? a.d_value, 0)),
+    run: (w, id, a) => { setNumberValue(w, id, Number(w.get(id).data?.value ?? 0) + num(a.value ?? a.d_value, 0)); trackerToCam(w, id) },
   },
   /** Scale and centre to enclose another object (buffer_factor 1.2 = 20% larger, Manim's default). */
   surround: {

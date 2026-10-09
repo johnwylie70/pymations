@@ -439,7 +439,7 @@ function unpackEngine(eng) {
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : (input && input.url) || String(input)
     if (url.startsWith(prefix)) {
-      const b64 = fonts[decodeURIComponent(url.slice(prefix.length))]
+      const b64 = fonts[decodeURIComponent(url.slice(prefix.length).split(/[?#]/)[0])]
       if (b64 != null) return Promise.resolve(new Response(fromBase64(b64), { headers: { 'Content-Type': 'font/ttf' } }))
     }
     return pageFetch(input, init)
@@ -1007,6 +1007,9 @@ class Player {
     if (scene.opt.controls !== false) this.makeBar()
     this.onKey = (e) => this.key(e)
     window.addEventListener('keydown', this.onKey)
+    // The engine's notices (a font or an equation still loading after a
+    // while) and errors from work it finishes later, collected once a second.
+    this.poll = setInterval(() => this.takeErrors(), 1000)
   }
 
   /** A new run. Python's first command resets the engine itself. */
@@ -1046,6 +1049,7 @@ class Player {
   }
 
   destroy() {
+    clearInterval(this.poll)
     this.halt()
     this.observer.disconnect()
     window.removeEventListener('keydown', this.onKey)
@@ -1065,10 +1069,14 @@ class Player {
   }
 
   takeErrors() {
+    const e = this.engine
+    if (typeof e.takeNotices === 'function') {
+      for (const n of e.takeNotices()) this.scene.log('info', 'animation: ' + ((n && n.message) || String(n)))
+    }
     // Strings, or {message, line} with the Python line that made the command.
-    for (const e of this.engine.takeErrors ? this.engine.takeErrors() : []) {
-      if (e && typeof e === 'object') this.report((e.line ? 'line ' + e.line + ': ' : '') + (e.message || String(e)))
-      else this.report(String(e))
+    for (const x of e.takeErrors ? e.takeErrors() : []) {
+      if (x && typeof x === 'object') this.report((x.line ? 'line ' + x.line + ': ' : '') + (x.message || String(x)))
+      else this.report(String(x))
     }
   }
 
