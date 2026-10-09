@@ -20,6 +20,7 @@ import {
   tipPaths, type Builder, type MakeEnv,
 } from './kinds'
 import { parsePathData } from './tex/svg-path'
+import { booleanPaths, regionOf, type BoolOp } from './boolean'
 
 const BLACK = '#000000'
 const BLUE = NAMED.BLUE
@@ -895,7 +896,18 @@ function makeSvgFrom(env: MakeEnv, id: number, kind: string, props: Kw): void | 
 
 /* ------------------------------------------------------------- the table */
 
+/** Union / Intersection / Difference / Exclusion: one shape from the combined regions. */
+function makeBoolean(env: MakeEnv, id: number, kind: string, props: Kw, op: BoolOp) {
+  const ids: unknown[] = props.mobjects ?? props.vmobjects ?? [props.subject, props.clip].filter(x => x != null)
+  const regions = (ids as unknown[]).map(t => regionOf(env.w, resolveTarget(env.w, t)))
+  put(env, id, kind, props, styleFrom(props), booleanPaths(op, regions))
+}
+
 export const MORE_KINDS: Record<string, Builder> = {
+  union: (env, id, p, kind) => makeBoolean(env, id, kind, p, 'union'),
+  intersection: (env, id, p, kind) => makeBoolean(env, id, kind, p, 'intersection'),
+  difference: (env, id, p, kind) => makeBoolean(env, id, kind, p, 'difference'),
+  exclusion: (env, id, p, kind) => makeBoolean(env, id, kind, p, 'exclusion'),
   angle: (env, id, p, kind) => makeAngle(env, id, kind, p, false),
   right_angle: (env, id, p, kind) => makeAngle(env, id, kind, p, true),
   sector: (env, id, p, kind) => makeSector(env, id, kind, p, num(p.inner_radius, 0), num(p.outer_radius ?? p.radius, 1)),

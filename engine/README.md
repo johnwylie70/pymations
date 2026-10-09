@@ -1,6 +1,6 @@
 # The animation engine
 
-The browser half of Pymations' drawing: TypeScript, no dependencies at build time beyond esbuild. Python only describes a scene; this engine owns geometry, placement, the timeline and drawing. It runs on the page's main thread and draws onto a 2D canvas.
+The browser half of Pymations' drawing: TypeScript; it bundles one library, polygon-clipping (MIT), for Boolean shapes. Python only describes a scene; this engine owns geometry, placement, the timeline and drawing. It runs on the page's main thread and draws onto a 2D canvas.
 
 `src/` is copied from Circuitry, where Pymations is built (`circuitry/scripts/sync-pymations-lib.mjs`), together with the built bundle in `src/pymations/web/engine/`. Change the engine there, then sync. To rebuild the bundle here instead:
 
@@ -22,6 +22,7 @@ npm run build        # writes ../src/pymations/web/engine/
 | `render.ts`, `frame.ts` | Drawing a moment of the timeline |
 | `text.ts` | Text to outlines with opentype.js and Liberation Sans |
 | `tex/` | KaTeX to glyph outlines, for MathTex and Tex |
+| `boolean.ts` | Boolean shapes (union, intersection, difference, exclusion), with polygon-clipping (MIT, bundled) |
 | `color.ts`, `math.ts`, `scene.ts` | Colours, matrices, the scene's objects |
 
 ## The commands

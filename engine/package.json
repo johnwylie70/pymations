@@ -2,7 +2,6 @@
   "name": "pymations-engine-build",
   "private": true,
   "description": "Builds src/pymations/web/engine/ from engine/src. Not published.",
-  "type": "module",
   "scripts": {
     "build": "node build.mjs"
   },
@@ -10,6 +9,7 @@
     "esbuild": "^0.25.0",
     "katex": "0.16.27",
     "opentype.js": "1.3.4",
+    "polygon-clipping": "0.15.7",
     "pdfjs-dist": "5.4.296"
   }
 }

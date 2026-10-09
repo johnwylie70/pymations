@@ -6,6 +6,7 @@
  *   katex.min.js/.css  KaTeX, for MathTex/Tex outlines
  *   fonts/             KaTeX's .ttf + .woff2 and Liberation Sans for Text (both SIL OFL 1.1, licences beside them)
  *   opentype.min.js    glyph outlines from those fonts
+ *   LICENSE-polygon-clipping.txt  the licence of polygon-clipping (MIT), bundled into anim.js
  *
  *   cd engine && npm install && npm run build
  *
@@ -32,6 +33,8 @@ function copy(from, to) {
 }
 
 const esbuild = require('esbuild')
+// Bare imports in the source (polygon-clipping) resolve from the same node_modules.
+const nodePaths = [nm]
 mkdirSync(join(out, 'fonts'), { recursive: true })
 await esbuild.build({
   entryPoints: [join(here, 'src/entry.ts')],
@@ -43,6 +46,7 @@ await esbuild.build({
   minify: true,
   legalComments: 'none',
   logLevel: 'warning',
+  nodePaths,
 })
 writeFileSync(join(out, 'anim.js'),
   '/* Pymations engine (MIT licence, John Wylie). Built from engine/src. Loads KaTeX and opentype.js beside it. */\n' +
@@ -61,4 +65,6 @@ for (const f of ['LiberationSans-Regular.ttf', 'LiberationSans-Bold.ttf', 'Liber
 }
 copy(join(lib, 'LICENSE_LIBERATION'), join(out, 'fonts', 'LICENSE_LIBERATION.txt'))
 copy(join(here, 'LICENSE_KATEX_FONTS.txt'), join(out, 'fonts', 'LICENSE_KATEX_FONTS.txt'))
+// polygon-clipping is bundled into anim.js (Boolean shapes); its licence goes beside it.
+copy(join(nm, 'polygon-clipping/LICENSE.md'), join(out, 'LICENSE-polygon-clipping.txt'))
 console.log('Built ' + out)

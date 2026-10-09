@@ -33,6 +33,7 @@ Pyctures runtime (MIT licence, John Wylie): pyctures.py.
 KaTeX (MIT licence, Khan Academy and other contributors): engine/katex.min.js, engine/katex.min.css.
 KaTeX fonts (SIL Open Font License 1.1, Design Science and Khan Academy): engine/fonts/KaTeX_*; see engine/fonts/LICENSE_KATEX_FONTS.txt.
 opentype.js (MIT licence, Frederik De Bleser): engine/opentype.min.js.
+polygon-clipping (MIT licence, Mike Fogel): bundled in engine/anim.js; see engine/LICENSE-polygon-clipping.txt.
 Liberation Sans (SIL Open Font License 1.1): engine/fonts/LiberationSans-*.ttf; see engine/fonts/LICENSE_LIBERATION.txt.
 Pyodide (Mozilla Public License 2.0) is not included: it is loaded from its official CDN, https://cdn.jsdelivr.net/pyodide/.
 Full texts: https://github.com/johnwylie70/pymations/blob/main/THIRD-PARTY-NOTICES
