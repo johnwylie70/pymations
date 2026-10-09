@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/pymations?color=blue)](https://pypi.org/project/pymations/) [![npm](https://img.shields.io/npm/v/pymations?color=blue)](https://www.npmjs.com/package/pymations) [![Python 3.9+](https://img.shields.io/pypi/pyversions/pymations)](https://pypi.org/project/pymations/) [![MIT licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 
-[![Pymations animations: Pythagoras by rearrangement, sine from the unit circle, a derivative and Euler's identity, each a short Python program](https://raw.githubusercontent.com/johnwylie70/pymations/main/docs/images/gallery.gif)](https://johnwylie70.github.io/pymations/)
+[![Pymations animations: Pythagoras by rearrangement, sine from the unit circle, a derivative and Euler's identity, each a short Python program](docs/images/gallery.gif)](https://johnwylie70.github.io/pymations/)
 
 **[See them playing in your browser, with their code →](https://johnwylie70.github.io/pymations/)** Nothing to install. Or **[change the code and run it on the Pymations page →](https://www.circuitry.dev/pymations)**
 
@@ -38,7 +38,7 @@ play(square.animate.shift(RIGHT * 2).scale(0.5))
 wait()
 ```
 
-<img src="https://raw.githubusercontent.com/johnwylie70/pymations/main/docs/images/readme-hello.jpg" width="800" alt="hello.py in four moments: a yellow square is drawn, bends as it turns into a circle, becomes a half-filled blue circle, then moves right and shrinks">
+<img src="docs/images/readme-hello.jpg" width="800" alt="hello.py in four moments: a yellow square is drawn, bends as it turns into a circle, becomes a half-filled blue circle, then moves right and shrinks">
 
 That is a whole program. `play()` adds animations to the scene's timeline, one after another, and `wait()` holds still for a second.
 
@@ -80,7 +80,7 @@ play(x.animate.set_value(4), run_time=3)
 wait()
 ```
 
-<img src="https://raw.githubusercontent.com/johnwylie70/pymations/main/docs/images/readme-follow.jpg" width="800" alt="Three moments of the example: a yellow dot rides up the curve y = x squared, with its value, 0.06, then 4.00, then 16.00, written beside it">
+<img src="docs/images/readme-follow.jpg" width="800" alt="Three moments of the example: a yellow dot rides up the curve y = x squared, with its value, 0.06, then 4.00, then 16.00, written beside it">
 
 They are worked out in the browser on every frame, so dragging the scrubber to any moment shows exactly what plays there. [Updaters](docs/updaters.md) has the rest.
 
@@ -88,7 +88,7 @@ They are worked out in the browser on every frame, so dragging the scrubber to a
 
 Manim was created by Grant Sanderson to make the animations in his [3Blue1Brown](https://www.3blue1brown.com) maths videos. [Manim Community](https://www.manim.community) is the community-maintained version that most people use today. Pymations is a fresh rewrite of its script API, not a fork: no Manim code is included. It is built to play in real time in a browser, and its defaults, placement and timings were checked against values measured from real Manim. Most 2D scenes run unchanged; [Differences from Manim](docs/differences-from-manim.md) lists what does not.
 
-<img src="https://raw.githubusercontent.com/johnwylie70/pymations/main/docs/images/readme-pythagoras.jpg" width="800" alt="A Manim Community script, unchanged, playing in Pymations: four right triangles rearranged in a square leave the squares a squared and b squared, then the boxed result c squared equals a squared plus b squared">
+<img src="docs/images/readme-pythagoras.jpg" width="800" alt="A Manim Community script, unchanged, playing in Pymations: four right triangles rearranged in a square leave the squares a squared and b squared, then the boxed result c squared equals a squared plus b squared">
 
 That is [`examples/pythagoras.py`](examples/pythagoras.py), a Manim script, running as it is.
 

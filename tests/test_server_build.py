@@ -200,3 +200,20 @@ def test_versions_agree():
     py = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M).group(1)
     npm = json.loads((ROOT / "npm/package.json").read_text())["version"]
     assert py == pymations.__version__ == npm
+
+
+def test_release_readme_points_pictures_at_github():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_release", ROOT / "scripts" / "build_release.py")
+    rel = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rel)
+    base = "https://raw.githubusercontent.com/someone/pymations/main/"
+    text = (ROOT / "README.md").read_text()
+    out = rel.absolute_images(text, base)
+    pictures = re.findall(r'<img\s[^>]*?src="([^"]+)"|!\[[^\]]*\]\(([^)\s]+)\)', text)
+    local = [a or b for a, b in pictures if not (a or b).startswith("http")]
+    assert local, "the README has pictures by relative path"
+    for path in local:
+        assert (ROOT / path).is_file(), path                 # they show in a checkout and on GitHub
+        assert base + path in out                            # and on PyPI
+    assert '<div data-pymations-src="hello.py">' in out      # code examples are left alone
