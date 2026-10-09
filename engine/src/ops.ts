@@ -8,14 +8,15 @@
  * scale and rotate about the object's centre.
  */
 import type { Pt } from './geometry-types'
-import { IDENTITY, mul, rotateAbout, scaleAbout, translate, type Mat } from './math'
+import { apply, IDENTITY, invert, mul, rotateAbout, scaleAbout, translate, type Mat } from './math'
+import { rot3, scale3, translate3, type V3 } from './math3'
 import { polySub, smoothSub } from './geometry'
 import { setNumberValue } from './kinds'
 import {
-  become, boxCenter, copyFamily, critical, family, familyBox, hasGeom, styleFamily,
-  transformFamily, type ImageRef, type Style, type World,
+  become, boxCenter, CAMERA, copyFamily, critical, family, familyBox, familyBox3, hasGeom, is3D, styleFamily,
+  transformFamily, transformFamily3, worldP3, type ImageRef, type Style, type World,
 } from './scene'
-import { endPoint, isMobRef, normArgs, num, resolvePoint, resolveTarget, resolveVec, type Kw } from './args'
+import { endPoint, isMobRef, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, resolveVec, type Kw } from './args'
 import { lerpColor, normColor } from './color'
 
 export interface OpEnv {
@@ -118,7 +119,87 @@ function nextTo(w: World, id: number, a: Kw) {
   const buff = num(a.buff, BUFF)
   const tp = critical(target, [edge[0] + dir[0], edge[1] + dir[1]])
   const me = critical(familyBox(w, id), [edge[0] - dir[0], edge[1] - dir[1]])
-  shiftBy(w, id, [tp[0] - me[0] + buff * dir[0], tp[1] - me[1] + buff * dir[1]])
+  // In 3D the depth lines up too (centres, or the faces an OUT/IN direction names).
+  const dz3 = zOf(a.direction), ez3 = zOf(a.aligned_edge)
+  const tz = zRange(w, a.mobject_or_point ?? ORIGIN), mz = zRange(w, id)
+  const pick = (r: [number, number], d: number) => (d > 0 ? r[1] : d < 0 ? r[0] : (r[0] + r[1]) / 2)
+  const dz = pick(tz, ez3 + dz3) - pick(mz, ez3 - dz3) + buff * dz3
+  shift3(w, id, tp[0] - me[0] + buff * dir[0], tp[1] - me[1] + buff * dir[1], dz)
+}
+
+/** The z part of a direction given as [x, y, z] (0 otherwise). */
+function zOf(v: unknown): number {
+  return Array.isArray(v) ? Number(v[2]) || 0 : 0
+}
+
+/** An object's (or a point's) depth range. */
+function zRange(w: World, v: unknown): [number, number] {
+  if (isMobRef(v)) { const b = familyBox3(w, resolveTarget(w, v)); return [b[2], b[5]] }
+  if (Array.isArray(v) && typeof v[0] !== 'string') { const z = Number(v[2]) || 0; return [z, z] }
+  try { const p = resolvePoint3(w, v); return [p[2], p[2]] } catch { return [0, 0] }
+}
+
+/** Move by (dx, dy, dz): the 2D fast path unless it leaves the screen plane. */
+function shift3(w: World, id: number, dx: number, dy: number, dz: number) {
+  if (Math.abs(dz) > 1e-12) transformFamily3(w, id, translate3(dx, dy, dz))
+  else shiftBy(w, id, [dx, dy])
+}
+
+/** The fixed point of a 3D scale or turn: about_point (with z), about_edge, or the 3D centre. */
+function about3(w: World, id: number, a: Kw): V3 {
+  if (a.about_point != null) return resolvePoint3(w, a.about_point)
+  const b = familyBox3(w, id)
+  if (a.about_edge != null) {
+    const e = Array.isArray(a.about_edge) ? a.about_edge.map(Number) : [0, 0, 0]
+    const pick = (lo: number, hi: number, d: number) => (d > 0 ? hi : d < 0 ? lo : (lo + hi) / 2)
+    return [pick(b[0], b[3], e[0] || 0), pick(b[1], b[4], e[1] || 0), pick(b[2], b[5], e[2] || 0)]
+  }
+  return [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]
+}
+
+/** Is a rotation axis the screen's normal (so the 2D turn is exact)? */
+function zAxis(axis: unknown): boolean {
+  if (!Array.isArray(axis)) return true
+  const x = Number(axis[0]) || 0, y = Number(axis[1]) || 0, z = Number(axis[2]) || 0
+  return Math.abs(x) < 1e-12 && Math.abs(y) < 1e-12 && z !== 0
+}
+
+function turn(w: World, id: number, angle: number, axis: unknown, a: Kw, aboutOrigin = false) {
+  if (zAxis(axis) && !is3D(w, id)) {
+    transformFamily(w, id, rotationMat(angle, axis, aboutOrigin ? ORIGIN : aboutPoint(w, id, a)))
+    return
+  }
+  const ax = (Array.isArray(axis) ? axis.map(Number) : [0, 0, 1]) as V3
+  transformFamily3(w, id, rot3(ax, angle, aboutOrigin ? [0, 0, 0] : about3(w, id, a)))
+}
+
+/** The 3D camera's settings (object 0's data.cam), Manim's ThreeDCamera defaults. */
+export interface CamState {
+  three_d: boolean
+  phi: number
+  theta: number
+  gamma: number
+  zoom: number
+  focal: number
+  center: V3
+}
+
+export const DEFAULT_CAM: CamState = { three_d: false, phi: 0, theta: -Math.PI / 2, gamma: 0, zoom: 1, focal: 20, center: [0, 0, 0] }
+
+export function camOf(w: { mobs: Map<number, any> }): CamState {
+  return { ...DEFAULT_CAM, ...(w.mobs.get(CAMERA)?.data?.cam || {}) }
+}
+
+/** Camera settings from Manim's kwargs (only those given); frame_center may be a point or an object. */
+export function camPatch(w: World, a: Kw): Partial<CamState> {
+  const p: Partial<CamState> = {}
+  if (a.phi != null) p.phi = num(a.phi, 0)
+  if (a.theta != null) p.theta = num(a.theta, -Math.PI / 2)
+  if (a.gamma != null) p.gamma = num(a.gamma, 0)
+  if (a.zoom != null) p.zoom = num(a.zoom, 1)
+  if (a.focal_distance != null) p.focal = num(a.focal_distance, 20)
+  if (a.frame_center != null) p.center = resolvePoint3(w, a.frame_center)
+  return p
 }
 
 function toEdge(w: World, id: number, dir: Pt, buff: number, env: OpEnv) {
@@ -216,9 +297,9 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
     params: ['*vectors'],
     run: (w, id, a) => {
       const vs: unknown[] = a.vectors || []
-      let dx = 0, dy = 0
-      for (const v of vs) { const p = resolvePoint(w, v); dx += p[0]; dy += p[1] }
-      shiftBy(w, id, [dx, dy])
+      let dx = 0, dy = 0, dz = 0
+      for (const v of vs) { const p = resolvePoint3(w, v); dx += p[0]; dy += p[1]; dz += p[2] }
+      shift3(w, id, dx, dy, dz)
     },
   },
   move_to: {
@@ -229,8 +310,12 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
         ? critical(familyBox(w, resolveTarget(w, a.point_or_mobject)), edge)
         : resolvePoint(w, a.point_or_mobject ?? ORIGIN)
       const me = critical(familyBox(w, id), edge)
-      const mask = Array.isArray(a.coor_mask) ? [num(a.coor_mask[0], 1), num(a.coor_mask[1], 1)] : [1, 1]
-      shiftBy(w, id, [(target[0] - me[0]) * mask[0], (target[1] - me[1]) * mask[1]])
+      const mask = Array.isArray(a.coor_mask) ? [num(a.coor_mask[0], 1), num(a.coor_mask[1], 1), num(a.coor_mask[2], 1)] : [1, 1, 1]
+      // Depth: to the target's z (a point's z, or the object's centre/face along the edge's z).
+      const ez = zOf(a.aligned_edge)
+      const pick = (r: [number, number]) => (ez > 0 ? r[1] : ez < 0 ? r[0] : (r[0] + r[1]) / 2)
+      const dz = (pick(zRange(w, a.point_or_mobject ?? ORIGIN)) - pick(zRange(w, id))) * mask[2]
+      shift3(w, id, (target[0] - me[0]) * mask[0], (target[1] - me[1]) * mask[1], dz)
     },
   },
   center: { params: [], run: (w, id) => { const c = boxCenter(familyBox(w, id)); shiftBy(w, id, [-c[0], -c[1]]) } },
@@ -260,20 +345,74 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
       const f = a.scale_factor
       const sx = Array.isArray(f) ? num(f[0], 1) : num(f, 1)
       const sy = Array.isArray(f) ? num(f[1], 1) : sx
-      transformFamily(w, id, scaleAbout(sx, sy, aboutPoint(w, id, a)))
+      // A 3D object scales in depth too.
+      if (is3D(w, id)) transformFamily3(w, id, scale3(sx, sy, Array.isArray(f) ? num(f[2], 1) : sx, about3(w, id, a)))
+      else transformFamily(w, id, scaleAbout(sx, sy, aboutPoint(w, id, a)))
     },
   },
   rotate: {
     params: ['angle', 'axis', 'about_point', 'about_edge'],
-    run: (w, id, a) => transformFamily(w, id, rotationMat(num(a.angle, 0), a.axis, aboutPoint(w, id, a))),
+    run: (w, id, a) => turn(w, id, num(a.angle, 0), a.axis, a),
   },
   rotate_about_origin: {
     params: ['angle', 'axis'],
-    run: (w, id, a) => transformFamily(w, id, rotationMat(num(a.angle, 0), a.axis, ORIGIN)),
+    run: (w, id, a) => turn(w, id, num(a.angle, 0), a.axis, a, true),
   },
   flip: {
     params: ['axis', 'about_point', 'about_edge'],
-    run: (w, id, a) => transformFamily(w, id, rotationMat(Math.PI, a.axis ?? [0, 1, 0], aboutPoint(w, id, a))),
+    // A flip about a screen axis keeps flat objects flat (the mirror image), 3D ones turn in depth.
+    run: (w, id, a) => (is3D(w, id) ? turn(w, id, Math.PI, a.axis ?? [0, 1, 0], a) : transformFamily(w, id, rotationMat(Math.PI, a.axis ?? [0, 1, 0], aboutPoint(w, id, a)))),
+  },
+  /** ThreeDScene's camera (target 0): only the settings given change; this switches the scene to 3D. */
+  set_camera_orientation: {
+    params: ['phi', 'theta', 'gamma', 'zoom', 'focal_distance', 'frame_center'],
+    run: (w, id, a) => {
+      const cam = w.get(CAMERA)
+      w.update(CAMERA, { data: { ...(cam.data || {}), cam: { ...camOf(w), ...camPatch(w, a), three_d: true } } })
+    },
+  },
+  /** HUD objects in a 3D scene: drawn flat on screen ('frame'), or placed in 3D but never turned ('orientation'). */
+  fix_in_frame: { params: [], run: (w, id) => { for (const i of family(w, id)) w.update(i, { fixed: 'frame' }) } },
+  unfix_from_frame: { params: [], run: (w, id) => { for (const i of family(w, id)) w.update(i, { fixed: undefined }) } },
+  fix_orientation: { params: [], run: (w, id) => { for (const i of family(w, id)) w.update(i, { fixed: 'orientation' }) } },
+  unfix_orientation: { params: [], run: (w, id) => { for (const i of family(w, id)) w.update(i, { fixed: undefined }) } },
+  set_shade_in_3d: { params: ['value'], run: (w, id, a) => { for (const i of family(w, id)) w.update(i, { shade3: a.value !== false }) } },
+  /** Colour a surface's faces by their centre's coordinate along an axis of the given axes (colorscale: [[colour, value], …]). */
+  set_fill_by_value: {
+    params: ['axes', 'colorscale', 'axis'],
+    run: (w, id, a) => {
+      const scale = ((a.colorscale || a.colors || []) as unknown[][])
+        .map((cv, i, all) => (Array.isArray(cv) ? [normColor(cv[0], '#FFFFFF'), Number(cv[1])] : [normColor(cv, '#FFFFFF'), i / Math.max(1, all.length - 1)]) as [string, number])
+        .sort((x, y) => x[1] - y[1])
+      if (!scale.length) return
+      const axis = Math.round(num(a.axis, 2))
+      const ax = a.axes != null ? w.get(resolveTarget(w, a.axes)) : null
+      const map = ax?.data?.axes, map3 = ax?.data?.axes3
+      const toAxis = (p: V3) => {
+        if (!map) return p[axis]
+        if (axis === 2) return map3 ? map3.z0 + (p[2] - map3.oz - (ax.m3 ? ax.m3[11] : 0)) / (map3.sz || 1) : p[2]
+        const l = apply(invert(ax.m), [p[0], p[1]])
+        return axis === 0 ? map.x0 + (l[0] - map.ox) / (map.sx || 1) : map.y0 + (l[1] - map.oy) / (map.sy || 1)
+      }
+      const colorAt = (v: number) => {
+        if (v <= scale[0][1]) return scale[0][0]
+        for (let i = 0; i + 1 < scale.length; i++) {
+          const [c0, v0] = scale[i], [c1, v1] = scale[i + 1]
+          if (v <= v1) return lerpColor(c0, c1, (v - v0) / ((v1 - v0) || 1))
+        }
+        return scale[scale.length - 1][0]
+      }
+      for (const i of family(w, id)) {
+        const m = w.get(i)
+        if (!m.p3 || !m.p3.length) continue
+        const wp = worldP3(m)
+        const n = wp.length / 3
+        const c: V3 = [0, 0, 0]
+        for (let k = 0; k < wp.length; k += 3) { c[0] += wp[k] / n; c[1] += wp[k + 1] / n; c[2] += wp[k + 2] / n }
+        const col = colorAt(toAxis(c))
+        w.set({ ...m, style: { ...m.style, fc: col, sc: m.style.sw > 0 ? m.style.sc : col } })
+      }
+    },
   },
   stretch: {
     params: ['factor', 'dim', 'about_point', 'about_edge'],

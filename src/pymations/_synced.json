@@ -1,10 +1,12 @@
 {
   "runtime_version": "12",
-  "module_version": "15",
-  "engine_sha256": "557390f09680ab42",
+  "module_version": "18",
+  "engine_sha256": "99c3e5a657439c07",
   "circuitry_commit": "d552a25ff+uncommitted",
   "synced_at": "2026-10-09",
   "examples": [
+    "surface_orbit.py",
+    "polyhedron.py",
     "pythagoras.py",
     "derivative.py",
     "unit_circle_sine.py",

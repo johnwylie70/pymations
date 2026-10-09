@@ -67,6 +67,23 @@ Line widths are in scene units (width 4 is 0.04 units), and scaling a shape does
 
 Make a shape from your own points with `VMobject().set_points_as_corners(points)` (straight lines) or `set_points_smoothly(points)` (a smooth curve through them).
 
+## Boolean shapes
+
+Combine two or more shapes into a new one:
+
+```python
+from pymations import *
+
+a = Circle(radius=1.5, color=BLUE, fill_opacity=0.5).shift(LEFT)
+b = Square(side_length=2.5, color=RED, fill_opacity=0.5).shift(RIGHT)
+add(a, b)
+both = Union(a, b, color=GREEN, fill_opacity=0.6)
+play(FadeOut(a, b), FadeIn(both))
+wait()
+```
+
+`Union(a, b)` is everything inside either, `Intersection(a, b)` only the part inside both, `Difference(a, b)` the part of `a` outside `b`, and `Exclusion(a, b)` the parts inside one but not both. The result is a shape like any other: style it, move it, transform it.
+
 ## Arrows
 
 Arrows stop 0.25 short of each end (`buff=0`, or a `Vector`, to touch). A short arrow gets a smaller tip, the same as Manim's.

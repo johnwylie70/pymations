@@ -9,6 +9,8 @@
 import type { Subpath } from './geometry-types'
 import { lerpColor } from './color'
 import type { Mat } from './math'
+import type { Mat3 } from './math3'
+import type { CamState } from './ops'
 import type { ImageRef, Shadow, Snap, Style, TextRun } from './scene'
 
 export interface DrawItem {
@@ -22,6 +24,12 @@ export interface DrawItem {
   image?: ImageRef
   shadow?: Shadow
   evenodd?: boolean
+  /** 3D (Contract v4): the item's 3D map, its 3D points (flat xyz), and how the 3D camera treats it. */
+  m3?: Mat3
+  p3?: number[]
+  closed3?: boolean
+  shade3?: boolean
+  fixed?: 'frame' | 'orientation'
 }
 
 export interface Over {
@@ -33,6 +41,10 @@ export interface Over {
   value?: number
   /** A picture's corners, border or crop mid-animation. */
   image?: ImageRef
+  /** A 3D object's map mid-animation (its 2D m is kept as this one's front view). */
+  m3?: Mat3
+  /** The 3D camera's settings mid-move (object 0). */
+  cam?: CamState
   /** Draw these instead of the object and everything under it (morphs). */
   replace?: DrawItem[]
   hidden?: boolean
@@ -50,7 +62,7 @@ export class Frame {
     if (o) return o
     const mob = this.scene.mobs.get(id)
     if (!mob) return null
-    o = { m: mob.m, alpha: 1, style: mob.style, partial: null }
+    o = { m: mob.m, alpha: 1, style: mob.style, partial: null, ...(mob.m3 ? { m3: mob.m3 } : {}) }
     this.over.set(id, o)
     return o
   }

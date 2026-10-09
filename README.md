@@ -131,7 +131,7 @@ Each animation fills its box, starts when it scrolls into view, and pauses when 
 
 ## What is supported
 
-- **Shapes:** circles, squares, polygons, lines, arrows, arcs, angles, braces, dashed and curved lines, SVG files and pictures.
+- **Shapes:** circles, squares, polygons, lines, arrows, arcs, angles, braces, dashed and curved lines, SVG files and pictures, and Boolean shapes (union, intersection, difference, exclusion).
 - **Text and maths:** `Text`, `MathTex` and `Tex` (drawn with KaTeX), `DecimalNumber`, tables, matrices and code.
 - **Graphs:** `Axes`, `NumberPlane`, `NumberLine`, plots, areas and Riemann rectangles, bar charts, polar and complex planes, network graphs.
 - **Animations:** `Create`, `Write`, `FadeIn`, `Transform`, `TransformMatchingTex`, `.animate`, `Indicate`, `LaggedStart`, and the rest of Manim's common set, with Manim's rate functions.

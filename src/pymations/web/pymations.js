@@ -1065,7 +1065,11 @@ class Player {
   }
 
   takeErrors() {
-    for (const msg of this.engine.takeErrors ? this.engine.takeErrors() : []) this.report(msg)
+    // Strings, or {message, line} with the Python line that made the command.
+    for (const e of this.engine.takeErrors ? this.engine.takeErrors() : []) {
+      if (e && typeof e === 'object') this.report((e.line ? 'line ' + e.line + ': ' : '') + (e.message || String(e)))
+      else this.report(String(e))
+    }
   }
 
   report(msg) {

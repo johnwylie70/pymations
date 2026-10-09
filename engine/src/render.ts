@@ -19,6 +19,8 @@ import { CAMERA, hasGeom, type Shadow } from './scene'
 import { parseColor } from './color'
 import { cssFamily } from './text'
 import type { DrawItem, Frame } from './frame'
+import { reconcile, render3D } from './render3d'
+import { camOf } from './ops'
 
 export interface RenderOpts {
   pxW: number
@@ -95,9 +97,16 @@ export function collectItems(f: Frame, roots?: number[]): DrawItem[] {
     const mob = mobs.get(id)
     if (!mob) return
     if (hasGeom(mob)) {
-      items.push(o
+      const it: DrawItem = o
         ? { paths: mob.paths, m: o.m, style: o.style, alpha: o.alpha, partial: o.partial, z: mob.z, text: mob.text, image: o.image ?? mob.image, shadow: mob.shadow, evenodd: mob.evenodd }
-        : { paths: mob.paths, m: mob.m, style: mob.style, alpha: 1, partial: null, z: mob.z, text: mob.text, image: mob.image, shadow: mob.shadow, evenodd: mob.evenodd })
+        : { paths: mob.paths, m: mob.m, style: mob.style, alpha: 1, partial: null, z: mob.z, text: mob.text, image: mob.image, shadow: mob.shadow, evenodd: mob.evenodd }
+      // 3D: the object's 3D map (adjusted by any 2D change an animation made), its 3D points, how the camera treats it.
+      const m3 = o ? reconcile(o.m, o.m3 ?? mob.m3) : mob.m3
+      if (m3) it.m3 = m3
+      if (mob.p3) { it.p3 = mob.p3; it.closed3 = mob.closed3 }
+      if (mob.shade3) it.shade3 = true
+      if (mob.fixed) it.fixed = mob.fixed
+      items.push(it)
     }
     for (const c of mob.children) walk(c)
   }
@@ -142,7 +151,15 @@ export function renderFrame(ctx: CanvasRenderingContext2D, f: Frame, o: RenderOp
   ctx.lineCap = 'round'
   alphaMul = o.alpha == null ? 1 : Math.max(0, Math.min(1, o.alpha))
   try {
-    if (alphaMul > 0) for (const it of collectItems(f)) drawItem(ctx, alphaMul === 1 ? it : { ...it, alpha: it.alpha * alphaMul }, V)
+    if (alphaMul > 0) {
+      const items = collectItems(f)
+      const cam = f.over.get(CAMERA)?.cam ?? camOf(f.scene)
+      // 3D camera, or 3D objects under the flat one: through the projector (the 2D path stays as it was otherwise).
+      if (cam.three_d || items.some(it => it.p3 || it.m3)) {
+        const am = alphaMul
+        render3D(ctx, am === 1 ? items : items.map(it => ({ ...it, alpha: it.alpha * am })), V, cam, (it, VV) => drawItem(ctx, it, VV))
+      } else for (const it of items) drawItem(ctx, alphaMul === 1 ? it : { ...it, alpha: it.alpha * alphaMul }, V)
+    }
   } finally {
     alphaMul = 1
   }
@@ -365,6 +382,15 @@ export function measure(f: Frame, id: number) {
       for (const p of sp.points) {
         const q = apply(it.m, p)
         if (!first) first = q
+        box = box ? [Math.min(box[0], q[0]), Math.min(box[1], q[1]), Math.max(box[2], q[0]), Math.max(box[3], q[1])] : [q[0], q[1], q[0], q[1]]
+      }
+    }
+    // 3D points: where they are in the scene (x, y).
+    if (it.p3 && it.p3.length) {
+      const M = it.m3
+      for (let k = 0; k < it.p3.length; k += 3) {
+        const q = M ? [M[0] * it.p3[k] + M[1] * it.p3[k + 1] + M[2] * it.p3[k + 2] + M[9], M[3] * it.p3[k] + M[4] * it.p3[k + 1] + M[5] * it.p3[k + 2] + M[10]] : apply(it.m, [it.p3[k], it.p3[k + 1]])
+        if (!first) first = [q[0], q[1]]
         box = box ? [Math.min(box[0], q[0]), Math.min(box[1], q[1]), Math.max(box[2], q[0]), Math.max(box[3], q[1])] : [q[0], q[1], q[0], q[1]]
       }
     }

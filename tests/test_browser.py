@@ -16,6 +16,10 @@ from pymations import build as build_mod
 
 playwright = pytest.importorskip("playwright.sync_api")
 
+# 3D reference scenes synced before the engine draws 3D: they run in Python,
+# and are expected to play once the engine's 3D is in this copy.
+PENDING_3D = {"polyhedron.py", "surface_orbit.py"}
+
 SCENES = sorted(p.name for p in EXAMPLES.glob("*.py") if p.name not in PENDING)
 
 # How many pixels of a 160x90 copy of the animation layer are drawn on (it is transparent elsewhere).
@@ -98,7 +102,8 @@ class Watched:
         return st
 
 
-@pytest.mark.parametrize("scene", SCENES)
+@pytest.mark.parametrize("scene", [pytest.param(n, marks=pytest.mark.xfail(reason="the engine's 3D is not in this copy yet"))
+                                   if n in PENDING_3D else n for n in SCENES])
 def test_run_each_example(browser, pymations_run, scene):
     p = pymations_run(EXAMPLES / scene)
     w = Watched(browser, p.url)

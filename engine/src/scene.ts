@@ -14,7 +14,8 @@
  * 0 is the camera frame.
  */
 import type { Pt, Subpath } from './geometry-types'
-import { apply, IDENTITY, mul, type Mat } from './math'
+import { apply, IDENTITY, invert, mul, type Mat } from './math'
+import { apply3, embed, isFlat, mul3, proj, type Mat3 } from './math3'
 import { bbox, unionBox, type Box } from './geometry'
 
 /** Stroke/fill style. Widths are Manim's numbers (4 = 0.04 scene units). */
@@ -82,6 +83,18 @@ export interface Mob {
   shadow?: Shadow
   /** Fill with the even-odd rule (an SVG's fill-rule="evenodd"). */
   evenodd?: boolean
+  /**
+   * 3D (Contract v4). m3: the object's 3D map, once it has one (then m is its
+   * front view). p3: a 3D polygon/polyline in local coordinates, flat
+   * [x, y, z, x, y, z, …] (a face of a surface or solid, a 3D curve).
+   */
+  m3?: Mat3
+  p3?: number[]
+  closed3?: boolean
+  /** Shaded by the 3D camera's light (faces of surfaces and solids). */
+  shade3?: boolean
+  /** 'frame': drawn flat on screen in a 3D scene; 'orientation': placed in 3D but never turned. */
+  fixed?: 'frame' | 'orientation'
   /** Per-kind facts in LOCAL coordinates (line ends, axis mapping, TeX strings). */
   data?: Record<string, any>
 }
@@ -156,7 +169,18 @@ export class World {
 }
 
 export function hasGeom(m: Mob): boolean {
-  return m.paths.length > 0 || !!m.text || !!m.image
+  return m.paths.length > 0 || !!m.text || !!m.image || !!(m.p3 && m.p3.length)
+}
+
+/** A 3D polygon/polyline's points in the scene (its m3, or its 2D matrix if it has none). */
+export function worldP3(m: Mob): number[] {
+  const M = m.m3 ?? embed(m.m)
+  const out = new Array(m.p3.length)
+  for (let k = 0; k < m.p3.length; k += 3) {
+    const q = apply3(M, m.p3[k], m.p3[k + 1], m.p3[k + 2])
+    out[k] = q[0]; out[k + 1] = q[1]; out[k + 2] = q[2]
+  }
+  return out
 }
 
 /** The object and everything under it, parents first, each once. */
@@ -178,6 +202,17 @@ export function leaves(s: Snap | World, id: number): number[] {
 
 export function mobBox(m: Mob, mat: Mat = m.m): Box | null {
   let b = m.paths.length ? bbox(m.paths, mat) : null
+  if (m.p3 && m.p3.length) {
+    const wp = worldP3(m)
+    // A caller's own matrix (Brace measures in a turned frame) applies on top of where it is.
+    const extra = mat === m.m ? null : mul(mat, invert(m.m))
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (let k = 0; k < wp.length; k += 3) {
+      const q = extra ? apply(extra, [wp[k], wp[k + 1]]) : [wp[k], wp[k + 1]]
+      x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1])
+    }
+    if (x0 !== Infinity) b = unionBox(b, [x0, y0, x1, y1])
+  }
   const rect = m.text || m.image
   if (rect) {
     const { w, h } = rect
@@ -216,8 +251,53 @@ export function centerOf(s: Snap | World, id: number): Pt {
 export function transformFamily(w: World, id: number, M: Mat) {
   for (const i of family(w, id)) {
     const mob = w.get(i)
-    w.set({ ...mob, m: mul(M, mob.m) })
+    if (mob.m3) {
+      const m3 = mul3(embed(M), mob.m3)
+      w.set({ ...mob, m3, m: proj(m3) })
+    } else w.set({ ...mob, m: mul(M, mob.m) })
   }
+}
+
+/**
+ * A 3D change (a turn about a horizontal axis, a move in z, a 3D scale).
+ * Objects that stay in the screen plane under it keep their 2D-only fast path.
+ */
+export function transformFamily3(w: World, id: number, M: Mat3) {
+  const flat = isFlat(M)
+  for (const i of family(w, id)) {
+    const mob = w.get(i)
+    if (!mob.m3 && flat) { w.set({ ...mob, m: mul(proj(M), mob.m) }); continue }
+    const m3 = mul3(M, mob.m3 ?? embed(mob.m))
+    w.set({ ...mob, m3, m: proj(m3) })
+  }
+}
+
+/** The family's 3D box [x0, y0, z0, x1, y1, z1] (z is 0 for flat objects). */
+export function familyBox3(s: Snap | World, id: number): [number, number, number, number, number, number] {
+  const b = familyBox(s, id)
+  let z0 = Infinity, z1 = -Infinity
+  for (const i of family(s, id)) {
+    const m = s.mobs.get(i)
+    if (m.p3 && m.p3.length) {
+      const wp = worldP3(m)
+      for (let k = 2; k < wp.length; k += 3) { z0 = Math.min(z0, wp[k]); z1 = Math.max(z1, wp[k]) }
+    } else if (hasGeom(m)) {
+      const M = m.m3
+      if (!M) { z0 = Math.min(z0, 0); z1 = Math.max(z1, 0); continue }
+      for (const sp of m.paths) for (const p of sp.points) { const z = apply3(M, p[0], p[1], 0)[2]; z0 = Math.min(z0, z); z1 = Math.max(z1, z) }
+      const rect = m.text || m.image
+      if (rect) for (const [x, y] of [[-rect.w / 2, -rect.h / 2], [rect.w / 2, rect.h / 2], [-rect.w / 2, rect.h / 2], [rect.w / 2, -rect.h / 2]]) {
+        const z = apply3(M, x, y, 0)[2]; z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+      }
+    }
+  }
+  if (z0 === Infinity) { z0 = 0; z1 = 0 }
+  return [b[0], b[1], z0, b[2], b[3], z1]
+}
+
+/** Does anything in the family live in 3D (a 3D map or 3D points)? */
+export function is3D(s: Snap | World, id: number): boolean {
+  return family(s, id).some(i => { const m = s.mobs.get(i); return !!(m.m3 || m.p3) })
 }
 
 export function styleFamily(w: World, id: number, fn: (s: Style, m: Mob) => Style) {

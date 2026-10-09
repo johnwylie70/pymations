@@ -14,10 +14,11 @@ import {
   smoothSub, starPts, TAU, transformPaths, unionBox, type Box,
 } from './geometry'
 import { boxCenter, family, familyBox, mobBox, newMob, type Mob, type Style, type TextRun, type World } from './scene'
-import { axisToLocal, isMobRef, normArgs, num, resolvePoint, resolveTarget, type AxisMap, type Kw } from './args'
+import { axisToLocal, c2p3, isMobRef, normArgs, num, resolvePoint, resolvePoint3, resolveTarget, type AxisMap, type Kw } from './args'
 import { normColor, NAMED, PURE_YELLOW, WHITE, YELLOW } from './color'
 import { fontKey, type TextOutliner } from './text'
 import { MORE_KINDS } from './more-kinds'
+import { curve3, KINDS_3D } from './kinds3d'
 
 export type TexFn = (input: TexInput) => Promise<TexOutline>
 
@@ -492,6 +493,14 @@ function makeGraph(env: MakeEnv, id: number, props: Kw) {
   }
   if (Array.isArray(props.segments)) for (const s of props.segments) addRun(s as unknown[])
   else addRun(props.points || [])
+  // On ThreeDAxes with z values (plot_parametric_curve): a 3D curve through c2p.
+  const raw3 = (Array.isArray(props.segments) ? props.segments : [props.points || []]) as unknown[][]
+  if (map && raw3.some(seg => (seg || []).some(q => Array.isArray(q) && Math.abs(Number(q[2]) || 0) > 1e-12))) {
+    const axId = resolveTarget(env.w, props.axes)
+    const runs3 = raw3.map(seg => (seg || []).filter(q => Array.isArray(q)).map(q => c2p3(env.w, axId, Number(q[0]), Number(q[1]), Number(q[2]) || 0)))
+    makeCurve3(env, id, 'graph', props, runs3.map(r => (props.use_smoothing === false ? r : smooth3(r, false))), !!props.closed, { color: YELLOW })
+    return
+  }
   const smooth = props.use_smoothing !== false && props.smooth !== false
   const closed = !!props.closed
   const paths = runs.filter(r => r.length >= 2).map(r => (smooth ? smoothSub(r, closed) : polySub(r, closed)))
@@ -766,6 +775,41 @@ export function setCanvasFactory(f: CanvasFactory) {
   canvasFactory = f
 }
 
+/* --------------------------------------------------------------- 3D curves */
+
+/** Catmull-Rom through 3D points, 6 samples per span: a smooth polyline. */
+function smooth3(pts: Array<[number, number, number]>, closed: boolean): Array<[number, number, number]> {
+  const n = pts.length
+  if (n < 3) return pts
+  const get = (i: number) => (closed ? pts[((i % n) + n) % n] : pts[Math.max(0, Math.min(n - 1, i))])
+  const out: Array<[number, number, number]> = [pts[0]]
+  const spans = closed ? n : n - 1
+  for (let i = 0; i < spans; i++) {
+    const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2)
+    for (let k = 1; k <= 6; k++) {
+      const t = k / 6, t2 = t * t, t3 = t2 * t
+      out.push([0, 1, 2].map(c => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)) as [number, number, number])
+    }
+  }
+  return out
+}
+
+/** A 3D curve object: one run as its own 3D polyline, several as parts. */
+function makeCurve3(env: MakeEnv, id: number, kind: string, props: Kw, runs: Array<Array<[number, number, number]>>, closed: boolean, d: StyleDefaults = {}) {
+  const style = styleFrom(props, d)
+  const good = runs.filter(r => r.length >= 2)
+  if (good.length === 1) {
+    put(env, id, kind, props, style, [], { p3: good[0].flat(), closed3: closed, m3: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], data: { start3: good[0][0], end3: good[0][good[0].length - 1] } })
+    return
+  }
+  const kids = good.map(r => {
+    const k = env.w.newId()
+    env.w.set(newMob(k, 'curve3', style, [], { p3: r.flat(), closed3: closed, m3: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }))
+    return k
+  })
+  put(env, id, kind, props, style, [], { children: kids })
+}
+
 /* ---------------------------------------------------------------- brace */
 
 function cubicPts(p0: Pt, p1: Pt, p2: Pt, p3: Pt, n: number, out: Pt[]) {
@@ -904,6 +948,13 @@ export const BUILDERS: Record<string, Builder> = {
     const subs: unknown[][] = Array.isArray(p.subpaths) ? p.subpaths : [p.points || []]
     const mode = p.mode ?? (p.smooth ? 'smooth' : 'corners')
     const closed = !!p.closed
+    // Points off the screen plane: a 3D curve (ParametricFunction in space).
+    const s3 = subs.map(s => (s as unknown[]).map(v => resolvePoint3(env.w, v)))
+    if (s3.some(s => curve3(s))) {
+      const runs = s3.map(s => (mode === 'smooth' ? smooth3(s, closed) : s))
+      makeCurve3(env, id, kind, p, runs, closed)
+      return
+    }
     const paths = subs.map(s => {
       const pts = (s as unknown[]).map(v => resolvePoint(env.w, v))
       if (mode === 'bezier') return { points: pts, closed }
@@ -1009,12 +1060,12 @@ export function kindName(kind: string): string {
   return ALIASES[snake] || snake
 }
 
-export const KIND_NAMES = (): string[] => [...Object.keys(BUILDERS), ...Object.keys(MORE_KINDS)]
+export const KIND_NAMES = (): string[] => [...Object.keys(BUILDERS), ...Object.keys(MORE_KINDS), ...Object.keys(KINDS_3D)]
 
 /** Create object `id`. Returns a Promise when it must wait for a font or TeX. */
 export function make(env: MakeEnv, id: number, kind: string, props: unknown): void | Promise<void> {
   const name = kindName(kind)
-  const b = BUILDERS[name] || MORE_KINDS[name]
+  const b = BUILDERS[name] || MORE_KINDS[name] || KINDS_3D[name]
   if (!b) throw new Error(`the animation layer cannot make "${kind}" yet`)
   return b(env, id, normArgs(props, []), String(kind).toLowerCase() === 'integer' ? 'integer' : name)
 }

@@ -41,6 +41,7 @@ import { arrTemplate, instantiate, isArrTemplate, runOps, Updaters, type Updater
 import { buildPlay, orderedEvents, ANIM_KINDS, type AnimSpec, type Node } from './animations'
 import { Frame } from './frame'
 import { measure, renderFrame } from './render'
+import { reconcile } from './render3d'
 import { TextOutliner } from './text'
 import { RATE_NAMES, smooth } from './rate'
 
@@ -371,8 +372,9 @@ export function createAnimEngine(options: EngineOptions = {}) {
     const mobs = new Map(f.scene.mobs)
     for (const [id, o] of f.over) {
       const m = mobs.get(id)
-      if (!m || (o.m === m.m && o.style === m.style && o.value == null)) continue
-      mobs.set(id, { ...m, m: o.m, style: o.style, data: o.value != null ? { ...(m.data || {}), value: o.value } : m.data })
+      if (!m || (o.m === m.m && o.style === m.style && o.value == null && o.m3 === m.m3)) continue
+      const m3 = reconcile(o.m, o.m3 ?? m.m3)
+      mobs.set(id, { ...m, m: o.m, ...(m3 ? { m3 } : {}), style: o.style, data: o.value != null ? { ...(m.data || {}), value: o.value } : m.data })
     }
     return new World(mobs, f.scene.display.slice(), w.ids)
   }
@@ -437,6 +439,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
           const o = f.get(id)
           if (!o) continue
           o.m = a.m
+          if (a.m3) o.m3 = a.m3
           o.style = a.style
           if (a.data?.value != null) o.value = Number(a.data.value)
         }

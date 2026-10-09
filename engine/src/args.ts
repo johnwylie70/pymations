@@ -7,7 +7,8 @@
 import type { Pt } from './geometry-types'
 import { apply, invert } from './math'
 import { pointAt, transformPaths } from './geometry'
-import { boxCenter, CAMERA, centerOf, critical, familyBox, leaves, type World } from './scene'
+import { boxCenter, CAMERA, centerOf, critical, familyBox, familyBox3, is3D, leaves, type World } from './scene'
+import { apply3, embed } from './math3'
 import { graphPoint } from './more-kinds'
 
 export type Kw = Record<string, any>
@@ -123,6 +124,35 @@ export function c2p(w: World, axesId: number, x: number, y: number): Pt {
   return apply(mob.m, axisToLocal(map, x, y))
 }
 
+/** c2p with a z coordinate (ThreeDAxes), through the axes' 3D map when they have one. */
+export function c2p3(w: World, axesId: number, x: number, y: number, z: number): [number, number, number] {
+  const mob = w.get(axesId)
+  const map = mob.data && mob.data.axes
+  if (!map) throw new Error('c2p needs Axes, a NumberPlane or a NumberLine')
+  const l = axisToLocal(map, x, y)
+  const z3 = mob.data.axes3 as { z0: number; sz: number; oz: number } | undefined
+  const lz = z3 ? z3.oz + (z - z3.z0) * z3.sz : 0
+  return apply3(mob.m3 ?? embed(mob.m), l[0], l[1], lz)
+}
+
+/** A named point of an object in 3D (anchors with an OUT/IN part pick the near/far face). */
+export function pointOf3(w: World, id: number, anchor: unknown): [number, number, number] {
+  const p = pointOf(w, id, Array.isArray(anchor) ? [anchor[0], anchor[1]] : anchor)
+  if (!is3D(w, id)) return [p[0], p[1], Array.isArray(anchor) ? 0 : 0]
+  const b = familyBox3(w, id)
+  const dz = Array.isArray(anchor) ? Number(anchor[2]) || 0 : 0
+  return [p[0], p[1], dz > 0 ? b[5] : dz < 0 ? b[2] : (b[2] + b[5]) / 2]
+}
+
+/** A point with its z kept: [x,y,z], {"$pt": expr}, or an object (its 3D centre). */
+export function resolvePoint3(w: World, v: unknown): [number, number, number] {
+  if (Array.isArray(v) && typeof v[0] !== 'string') return [Number(v[0]) || 0, Number(v[1]) || 0, Number(v[2]) || 0]
+  if (isMobRef(v)) return pointOf3(w, resolveTarget(w, v), 'center')
+  const r = isPlainObject(v) && ('$pt' in v || '$x' in v) ? evalValue(w, v.$pt ?? v.$x) : Array.isArray(v) ? evalValue(w, v) : null
+  if (r == null) throw new Error('expected a point, got ' + JSON.stringify(v))
+  return typeof r === 'number' ? [r, 0, 0] : [r[0] || 0, r[1] || 0, r[2] || 0]
+}
+
 export interface AxisMap {
   /** local = (x - x0) * sx, (y - y0) * sy + origin offset */
   x0: number
@@ -169,8 +199,8 @@ export type Val = number | number[]
 export const evalClock = { t: 0, dt: 0, alpha: 0, homotopy: false }
 
 /** The point being mapped by ApplyPointwiseFunction / Homotopy (["p"]). */
-let pointVar: Pt | null = null
-export function withPoint<T>(p: Pt, fn: () => T): T {
+let pointVar: number[] | null = null
+export function withPoint<T>(p: number[], fn: () => T): T {
   const prev = pointVar
   pointVar = p
   try { return fn() } finally { pointVar = prev }
@@ -259,14 +289,14 @@ export function evalValue(w: World, e: any): Val {
       if (n === 'dt') return evalClock.dt
       if (n === 'alpha') return evalClock.alpha
       const p = pointVar || [0, 0]
-      if (n === 'p') return [p[0], p[1], 0]
-      if (n === 'x') return p[0]
-      if (n === 'y') return p[1]
-      if (n === 'z') return 0
+      if (n === 'p') return [p[0], p[1], p[2] ?? 0]
+      if (n === 'x' || n === 'u') return p[0]
+      if (n === 'y' || n === 'v') return p[1]
+      if (n === 'z') return p[2] ?? 0
       return 0
     }
-    case 'of': return vec3(pointOf(w, resolveTarget(w, e[1]), Array.isArray(e[2]) ? (E(e[2]) as number[]) : e[2]))
-    case 'c2p': return vec3(c2p(w, resolveTarget(w, e[1]), scalar(E(e[2])), scalar(E(e[3]))))
+    case 'of': return pointOf3(w, resolveTarget(w, e[1]), Array.isArray(e[2]) ? (E(e[2]) as number[]) : e[2])
+    case 'c2p': return c2p3(w, resolveTarget(w, e[1]), scalar(E(e[2])), scalar(E(e[3])), e[4] != null ? scalar(E(e[4])) : 0)
     case 'p2c': {
       const p = toPt(E(e[2]))
       const r = p2c(w, resolveTarget(w, e[1]), p)
@@ -278,7 +308,7 @@ export function evalValue(w: World, e: any): Val {
       return readValue(w, id, 'point_from_proportion', [scalar(E(e[2]))]) as Val
     }
     case 'graph_point': return vec3(graphPoint(w, resolveTarget(w, e[1]), scalar(E(e[2]))))
-    case 'p': return pointVar ? [pointVar[0], pointVar[1], 0] : [0, 0, 0]
+    case 'p': return pointVar ? [pointVar[0], pointVar[1], pointVar[2] ?? 0] : [0, 0, 0]
     case 'alpha': return evalClock.alpha
     case '+': case 'add': return bin(E(e[1]), E(e[2]), (x, y) => x + y)
     case '-': case 'sub': return bin(E(e[1]), E(e[2]), (x, y) => x - y)
@@ -344,7 +374,7 @@ export function readValue(w: World, id: number, what: string, args: unknown[] = 
   const b = familyBox(w, id)
   const arg = args[0]
   switch (name) {
-    case 'center': return vec3(boxCenter(b))
+    case 'center': return pointOf3(w, id, 'center')
     case 'width': return b[2] - b[0]
     case 'height': return b[3] - b[1]
     case 'x': return boxCenter(b)[0]
@@ -363,8 +393,8 @@ export function readValue(w: World, id: number, what: string, args: unknown[] = 
       return vec3(pointAt(paths, num(arg, 0)))
     }
     case 'c2p': case 'coords_to_point': case 'n2p': case 'number_to_point': {
-      const xy = Array.isArray(arg) ? arg : [arg, args[1] ?? 0]
-      return vec3(c2p(w, id, num(xy[0], 0), num(xy[1], 0)))
+      const xy = Array.isArray(arg) ? arg : [arg, args[1] ?? 0, args[2] ?? 0]
+      return c2p3(w, id, num(xy[0], 0), num(xy[1], 0), num(xy[2], 0))
     }
     case 'p2c': case 'point_to_coords': case 'p2n': case 'point_to_number': {
       const r = p2c(w, id, resolvePoint(w, arg))

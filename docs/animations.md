@@ -56,6 +56,7 @@ The changes in one `.animate` chain play together, as one smooth change from the
 | `MoveAlongPath(m, path)` | Move along a line or curve |
 | `ApplyMethod(m.shift, UP)`, `ApplyFunction(f, m)` | Play a method, or a function that returns the changed thing |
 | `ApplyMatrix(matrix, m)`, `ApplyPointwiseFunction(f, m)`, `Homotopy(h, m)` | Move every point (the function must be maths the browser can follow: `+ - * /`, `np.sin`, `np.cos` …) |
+| `ApplyComplexFunction(f, m)`, `ComplexHomotopy(h, m)` | Move every point as a complex number `z`: `lambda z: z ** 2`, `np.exp(z)` (use `np.` functions, not `cmath.`). `ComplexHomotopy` runs 3 seconds |
 | `Swap(a, b)`, `CyclicReplace(a, b, c)` | Swap places along arcs |
 | `ChangeDecimalToValue(number, value)`, `ChangingDecimal(number, f)` | Count a number to a value |
 
