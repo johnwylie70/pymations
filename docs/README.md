@@ -4,6 +4,10 @@ Pymations makes maths animations in Python, and runs Manim Community scripts. Yo
 
 Start here: [Getting started](getting-started.md).
 
+## Where it comes from
+
+Manim was created by Grant Sanderson to make the animations in his [3Blue1Brown](https://www.3blue1brown.com) maths videos. [Manim Community](https://www.manim.community) is the community-maintained version that most people use today. Pymations is a fresh rewrite, not a fork. It runs Manim Community scripts, but it is built to play in real time in a browser, and it works with [Circuitry](https://www.circuitry.dev/pymations), which gives you a code editor and live preview: build your scenes, run them, mix them with Pyctures animations, and export a video. Pymations is an independent project and is not affiliated with Manim, Manim Community or 3Blue1Brown.
+
 Pymations is also built into [Circuitry Studio](https://www.circuitry.dev), where the same scenes play with a live preview beside the code, on phones, iPad, the web and desktop: [circuitry.dev/pymations](https://www.circuitry.dev/pymations).
 
 ## Learn

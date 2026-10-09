@@ -30,7 +30,8 @@ ASSETS = {
 
 NOTICE = """Pymations (MIT licence, John Wylie): pymations.js, pyctures.py, pymations.py, engine/anim.js.
 Pyctures runtime (MIT licence, John Wylie): pyctures.py.
-KaTeX (MIT licence, Khan Academy and other contributors): engine/katex.min.js, engine/katex.min.css, engine/fonts/KaTeX_*.
+KaTeX (MIT licence, Khan Academy and other contributors): engine/katex.min.js, engine/katex.min.css.
+KaTeX fonts (SIL Open Font License 1.1, Design Science and Khan Academy): engine/fonts/KaTeX_*; see engine/fonts/LICENSE_KATEX_FONTS.txt.
 opentype.js (MIT licence, Frederik De Bleser): engine/opentype.min.js.
 Liberation Sans (SIL Open Font License 1.1): engine/fonts/LiberationSans-*.ttf; see engine/fonts/LICENSE_LIBERATION.txt.
 Pyodide (Mozilla Public License 2.0) is not included: it is loaded from its official CDN, https://cdn.jsdelivr.net/pyodide/.
@@ -140,7 +141,7 @@ def single_page(title, name, source, files=None, loop=False):
         attrs += ' data-pymations-files="%s"' % html.escape(",".join(files))
     if loop:
         attrs += " data-pymations-loop"
-    licence = ("<!-- Made with Pymations (MIT). Includes KaTeX (MIT), opentype.js (MIT) and Liberation Sans "
+    licence = ("<!-- Made with Pymations (MIT). Includes KaTeX (MIT) and its fonts (SIL OFL 1.1), opentype.js (MIT) and Liberation Sans "
                "(SIL OFL 1.1). Loads Pyodide (MPL 2.0) from its CDN. -->\n" if anim else
                "<!-- Made with Pymations (MIT). Loads Pyodide (MPL 2.0) from its CDN. -->\n")
     return """<!doctype html>

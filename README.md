@@ -46,6 +46,10 @@ wait()
 
 That is a whole program. `play()` adds animations to the scene's timeline, one after another, and `wait()` holds still for a second.
 
+## Where it comes from
+
+Manim was created by Grant Sanderson to make the animations in his [3Blue1Brown](https://www.3blue1brown.com) maths videos. [Manim Community](https://www.manim.community) is the community-maintained version that most people use today. Pymations is a fresh rewrite, not a fork. It runs Manim Community scripts, but it is built to play in real time in a browser, and it works with [Circuitry](https://www.circuitry.dev/pymations), which gives you a code editor and live preview: build your scenes, run them, mix them with Pyctures animations, and export a video. Pymations is an independent project and is not affiliated with Manim, Manim Community or 3Blue1Brown.
+
 ## The class form
 
 The same scene, written the way Manim tutorials write it:
@@ -146,6 +150,6 @@ Its Pymations page, where you can edit a scene and play it: [circuitry.dev/pymat
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE). Pymations includes KaTeX (MIT), opentype.js (MIT) and the Liberation Sans font (SIL OFL 1.1), and loads Pyodide (MPL 2.0) from its CDN; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+MIT. See [LICENSE](LICENSE). Pymations includes KaTeX (MIT) with its fonts (SIL OFL 1.1), opentype.js (MIT) and the Liberation Sans font (SIL OFL 1.1), and loads Pyodide (MPL 2.0) from its CDN; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
 Author: John Wylie

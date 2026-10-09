@@ -237,10 +237,20 @@ export function copyFamily(w: World, src: number, topId?: number): number {
 }
 
 /** `id` takes `src`'s whole look and structure (Manim's become / end of Transform). */
+/**
+ * `id` takes `src`'s whole look and structure (Manim's become / end of a
+ * Transform). Where the two have the same number of parts, the parts keep
+ * their own ids and become their counterparts in turn — Manim changes the
+ * same objects in place, so a part shown on its own (Create(group[0])) or
+ * held by Python (group[0]) stays that part.
+ */
 export function become(w: World, id: number, src: number) {
   if (id === src) return
   const s = w.get(src)
-  const children = s.children.map(c => copyFamily(w, c))
+  const mine = w.has(id) ? w.get(id).children : []
+  const children = mine.length && mine.length === s.children.length
+    ? mine.map((c, i) => { become(w, c, s.children[i]); return c })
+    : s.children.map(c => copyFamily(w, c))
   w.set({ ...s, id, children, data: s.data ? { ...s.data } : undefined })
 }
 

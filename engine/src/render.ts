@@ -28,7 +28,14 @@ export interface RenderOpts {
   fh: number
   /** Clear the area first (default true). */
   clear?: boolean
+  /** Scene transitions: an opacity for everything, a sideways shift (scene units), a clip [x0, x1] in pixels. */
+  alpha?: number
+  shiftX?: number
+  clipX?: [number, number]
 }
+
+/** Multiplies every item's opacity while one frame is drawn (a crossfade). */
+let alphaMul = 1
 
 const pathCache = new WeakMap<Subpath[], Path2D>()
 const hasPath2D = typeof Path2D !== 'undefined'
@@ -123,10 +130,22 @@ export function renderFrame(ctx: CanvasRenderingContext2D, f: Frame, o: RenderOp
     setT(ctx, base)
     ctx.clearRect(0, 0, o.pxW, o.pxH)
   }
-  const V = viewMatrix(f, o, base)
+  if (o.clipX) {
+    setT(ctx, base)
+    ctx.beginPath()
+    ctx.rect(o.clipX[0], 0, Math.max(0, o.clipX[1] - o.clipX[0]), o.pxH)
+    ctx.clip()
+  }
+  let V = viewMatrix(f, o, base)
+  if (o.shiftX) V = mul(V, [1, 0, 0, 1, o.shiftX, 0])
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  for (const it of collectItems(f)) drawItem(ctx, it, V)
+  alphaMul = o.alpha == null ? 1 : Math.max(0, Math.min(1, o.alpha))
+  try {
+    if (alphaMul > 0) for (const it of collectItems(f)) drawItem(ctx, alphaMul === 1 ? it : { ...it, alpha: it.alpha * alphaMul }, V)
+  } finally {
+    alphaMul = 1
+  }
   ctx.restore()
 }
 
@@ -149,12 +168,7 @@ function clearShadow(ctx: CanvasRenderingContext2D) {
 
 const roundCache = new Map<string, Path2D>()
 
-/** A rounded box centred on the origin, y down (the image's space); cached by size. */
-function roundBox(w: number, h: number, r: number): Path2D {
-  const key = `${w}|${h}|${r}`
-  let p = roundCache.get(key)
-  if (p) return p
-  p = new Path2D()
+function roundTrace(p: { moveTo: Function; arcTo: Function; closePath: Function }, w: number, h: number, r: number) {
   const rr = Math.max(0, Math.min(r, w / 2, h / 2))
   const x = -w / 2, y = -h / 2
   p.moveTo(x + rr, y)
@@ -163,9 +177,27 @@ function roundBox(w: number, h: number, r: number): Path2D {
   p.arcTo(x, y + h, x, y, rr)
   p.arcTo(x, y, x + w, y, rr)
   p.closePath()
+}
+
+/** A rounded box centred on the origin, y down (the image's space); cached by size (null without Path2D). */
+function roundBox(w: number, h: number, r: number): Path2D | null {
+  if (!hasPath2D) return null
+  const key = `${w}|${h}|${r}`
+  let p = roundCache.get(key)
+  if (p) return p
+  p = new Path2D()
+  roundTrace(p, w, h, r)
   if (roundCache.size > 500) roundCache.clear()
   roundCache.set(key, p)
   return p
+}
+
+/** Use a rounded box (clip, fill or stroke), with or without Path2D. */
+function withBox(ctx: CanvasRenderingContext2D, box: Path2D | null, w: number, h: number, r: number, op: 'clip' | 'fill' | 'stroke') {
+  if (box) { (ctx as any)[op](box); return }
+  ctx.beginPath()
+  roundTrace(ctx as any, w, h, r)
+  ;(ctx as any)[op]()
 }
 
 /**
@@ -227,7 +259,7 @@ function drawImageItem(ctx: CanvasRenderingContext2D, it: DrawItem, M: Mat, pxPe
       ctx.save()
       setShadow(ctx, it.shadow, pxPerUnit, alpha)
       ctx.fillStyle = '#000'
-      ctx.fill(box)
+      withBox(ctx, box, im.w, im.h, r, 'fill')
       ctx.restore()
     } else {
       // Square corners: the shadow follows the picture's own transparency.
@@ -239,14 +271,14 @@ function drawImageItem(ctx: CanvasRenderingContext2D, it: DrawItem, M: Mat, pxPe
   }
   if (r > 0) {
     ctx.save()
-    ctx.clip(box)
+    withBox(ctx, box, im.w, im.h, r, 'clip')
     draw()
     ctx.restore()
   } else if (!it.shadow) draw()
   if (im.border && im.border.width > 0) {
     ctx.strokeStyle = im.border.color
     ctx.lineWidth = (im.border.width * 0.01) / matScale(it.m)
-    ctx.stroke(box)
+    withBox(ctx, box, im.w, im.h, r, 'stroke')
   }
 }
 

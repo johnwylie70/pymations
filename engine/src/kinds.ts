@@ -212,7 +212,9 @@ export function makeTex(env: MakeEnv, id: number, kind: string, props: Kw, mode:
   const fontSize = num(props.font_size, 48)
   // MathTex joins its arguments with a space, Tex with nothing (arg_separator).
   const sep = props.arg_separator != null ? String(props.arg_separator) : mode === 'math' ? ' ' : ''
-  const key = `${mode}|${fontSize}|${sep}|${parts.join('\u0001')}`
+  // tex_environment (Manim's) decides how lines (\\) are laid out; part of the cache key.
+  const environment = props.tex_environment != null ? String(props.tex_environment) : props.environment != null ? String(props.environment) : undefined
+  const key = `${mode}|${fontSize}|${sep}|${environment ?? ''}|${parts.join('\u0001')}`
   const build = (out: TexOutline) => {
     const style = styleFrom(props, { sw: 0, fo: 1 })
     const children = out.parts.map((glyphs, i) => {
@@ -230,7 +232,7 @@ export function makeTex(env: MakeEnv, id: number, kind: string, props: Kw, mode:
   const hit = env.texCache.get(key)
   if (hit && !(hit instanceof Promise)) return build(hit)
   if (!env.tex) throw new Error('MathTex is not available in this preview')
-  const p = (hit as Promise<TexOutline>) || env.tex({ tex: parts.join(sep), mode, parts, fontSize })
+  const p = (hit as Promise<TexOutline>) || env.tex({ tex: parts.join(sep), mode, parts, fontSize, ...(environment ? { environment } : {}) })
   env.texCache.set(key, p)
   return p.then(
     out => { env.texCache.set(key, out); build(out) },

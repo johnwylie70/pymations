@@ -22,4 +22,4 @@ The animation fills its `<div>` (16:9 if the div has no height), starts when it 
 
 To write and test scenes on your own computer, install the Python package: `pip install pymations`, then `pymations run scene.py`.
 
-Includes KaTeX (MIT), opentype.js (MIT) and Liberation Sans (SIL OFL 1.1). Pymations is an independent project, not affiliated with Manim. Author: John Wylie. MIT licence.
+Includes KaTeX (MIT) with its fonts (SIL OFL 1.1), opentype.js (MIT) and Liberation Sans (SIL OFL 1.1). Pymations is an independent project, not affiliated with Manim. Author: John Wylie. MIT licence.

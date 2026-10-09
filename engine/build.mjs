@@ -4,7 +4,7 @@
  *
  *   anim.js            src/entry.ts as one script (sets window.__cirAnim)
  *   katex.min.js/.css  KaTeX, for MathTex/Tex outlines
- *   fonts/             KaTeX's .ttf + .woff2, and Liberation Sans (SIL OFL 1.1) for Text
+ *   fonts/             KaTeX's .ttf + .woff2 and Liberation Sans for Text (both SIL OFL 1.1, licences beside them)
  *   opentype.min.js    glyph outlines from those fonts
  *
  *   cd engine && npm install && npm run build
@@ -60,4 +60,5 @@ for (const f of ['LiberationSans-Regular.ttf', 'LiberationSans-Bold.ttf', 'Liber
   copy(join(lib, f), join(out, 'fonts', f))
 }
 copy(join(lib, 'LICENSE_LIBERATION'), join(out, 'fonts', 'LICENSE_LIBERATION.txt'))
+copy(join(here, 'LICENSE_KATEX_FONTS.txt'), join(out, 'fonts', 'LICENSE_KATEX_FONTS.txt'))
 console.log('Built ' + out)

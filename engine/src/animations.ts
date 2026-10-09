@@ -436,10 +436,14 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
       }
       const pairs = morphPairs(w, leaves(w, src), w, leaves(w, dst), cd, cs, num(a.path_arc, 0))
       const anchor = kind === 'transform_from_copy' ? dst : src
+      const srcParts = family(w, src).filter(i => i !== src)
       const apply: Leaf['apply'] = (alpha, f, rate, lag) => {
         const o = f.get(anchor)
         if (!o) return
         o.replace = morphItems(pairs, alpha, rate, lag)
+        // Parts of the source that are on screen by themselves (Create(group[0]))
+        // are drawn by the morph too: hide their own copies.
+        if (kind !== 'transform_from_copy') for (const i of srcParts) { const p = f.get(i); if (p) p.hidden = true }
         if (kind !== 'transform_from_copy' && dst !== src) {
           const ob = f.get(dst)
           if (ob) ob.hidden = true

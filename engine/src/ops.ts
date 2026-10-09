@@ -13,10 +13,10 @@ import { polySub, smoothSub } from './geometry'
 import { setNumberValue } from './kinds'
 import {
   become, boxCenter, copyFamily, critical, family, familyBox, hasGeom, styleFamily,
-  transformFamily, type ImageRef, type World,
+  transformFamily, type ImageRef, type Style, type World,
 } from './scene'
 import { endPoint, isMobRef, normArgs, num, resolvePoint, resolveTarget, resolveVec, type Kw } from './args'
-import { normColor } from './color'
+import { lerpColor, normColor } from './color'
 
 export interface OpEnv {
   /** Frame size used for to_edge/to_corner (the scene's, not the camera's). */
@@ -69,10 +69,29 @@ export function rotationMat(angle: number, axis: unknown, about: Pt): Mat {
   return mul(translate(about[0], about[1]), mul(R, translate(-about[0], -about[1])))
 }
 
-function setColorFamily(w: World, id: number, color: unknown) {
+/** A list of colours (set_color([...]), set_color_by_gradient): spread over the drawn parts, as Manim does. */
+export function isColorList(v: unknown): v is unknown[] {
+  return Array.isArray(v) && v.length > 0 && v.every(c => typeof c === 'string' || Array.isArray(c))
+}
+
+function gradientAt(cols: string[], t: number): string {
+  if (cols.length === 1) return cols[0]
+  const x = Math.max(0, Math.min(1, t)) * (cols.length - 1)
+  const i = Math.min(cols.length - 2, Math.floor(x))
+  return lerpColor(cols[i], cols[i + 1], x - i)
+}
+
+function setColorFamily(w: World, id: number, color: unknown, which: 'both' | 'fill' | 'stroke' = 'both') {
   if (color == null) return
+  const put = (s: Style, c: string): Style => (which === 'fill' ? { ...s, fc: c } : which === 'stroke' ? { ...s, sc: c } : { ...s, sc: c, fc: c })
+  if (isColorList(color)) {
+    const cols = color.map(c => normColor(c, '#FFFFFF'))
+    const parts = family(w, id).filter(i => hasGeom(w.get(i)))
+    parts.forEach((i, k) => { const m = w.get(i); w.set({ ...m, style: put(m.style, gradientAt(cols, parts.length > 1 ? k / (parts.length - 1) : 0)) }) })
+    return
+  }
   const c = normColor(color, '#FFFFFF')
-  styleFamily(w, id, s => ({ ...s, sc: c, fc: c }))
+  styleFamily(w, id, s => put(s, c))
 }
 
 function firstLeafStyle(w: World, id: number) {
@@ -285,14 +304,16 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
   set_fill: {
     params: ['color', 'opacity'],
     run: (w, id, a) => {
-      const c = a.color != null ? normColor(a.color, '#FFFFFF') : null
+      if (isColorList(a.color)) setColorFamily(w, id, a.color, 'fill')
+      const c = a.color != null && !isColorList(a.color) ? normColor(a.color, '#FFFFFF') : null
       styleFamily(w, id, s => ({ ...s, fc: c ?? s.fc, fo: num(a.opacity, s.fo) }))
     },
   },
   set_stroke: {
     params: ['color', 'width', 'opacity'],
     run: (w, id, a) => {
-      const c = a.color != null ? normColor(a.color, '#FFFFFF') : null
+      if (isColorList(a.color)) setColorFamily(w, id, a.color, 'stroke')
+      const c = a.color != null && !isColorList(a.color) ? normColor(a.color, '#FFFFFF') : null
       styleFamily(w, id, s => ({ ...s, sc: c ?? s.sc, sw: num(a.width, s.sw), so: num(a.opacity, s.so) }))
     },
   },

@@ -67,7 +67,7 @@ def test_the_synced_files_are_there():
     assert (pkg / "_runtime.py").read_text().startswith("# GENERATED")
     assert (pkg / "_anim.py").read_text().startswith("# GENERATED")
     for f in ("anim.js", "katex.min.js", "katex.min.css", "opentype.min.js",
-              "fonts/LiberationSans-Regular.ttf", "fonts/KaTeX_Main-Regular.ttf", "fonts/KaTeX_Main-Regular.woff2"):
+              "fonts/LiberationSans-Regular.ttf", "fonts/LICENSE_LIBERATION.txt", "fonts/LICENSE_KATEX_FONTS.txt", "fonts/KaTeX_Main-Regular.ttf", "fonts/KaTeX_Main-Regular.woff2"):
         assert (pkg / "web" / "engine" / f).is_file(), f
 
 

@@ -42,7 +42,7 @@ import { buildPlay, orderedEvents, ANIM_KINDS, type AnimSpec, type Node } from '
 import { Frame } from './frame'
 import { measure, renderFrame } from './render'
 import { TextOutliner } from './text'
-import { RATE_NAMES } from './rate'
+import { RATE_NAMES, smooth } from './rate'
 
 export interface EngineOptions {
   /** Folder URL of the bundle (ending in "/"): opentype.min.js and fonts/ live there. */
@@ -61,6 +61,26 @@ interface Cfg {
   frame_height: number
   frame_width: number | null
   background: string
+  /** The default scene transition (config(transition=…, transition_time=…)). */
+  transition?: string
+  transition_time?: number
+}
+
+/**
+ * A sound on the timeline (Contract v3; the page plays these with WebAudio and
+ * the recorder mixes them). The engine only keeps the list.
+ */
+export interface SoundEntry {
+  src: string
+  /** Timeline seconds where it starts. */
+  t0: number
+  volume: number
+  fade_in: number
+  fade_out: number
+  loop: boolean
+  /** Optional timeline end; without it a sound plays its length (a loop to the timeline's end). */
+  t1?: number
+  kind: string
 }
 
 const DEFAULT_ASPECT = 16 / 9
@@ -184,6 +204,8 @@ export function createAnimEngine(options: EngineOptions = {}) {
     if (k.frame_height != null) cfg.frame_height = num(k.frame_height, 8)
     if (k.frame_width != null) cfg.frame_width = num(k.frame_width, fw())
     if (k.background != null || k.background_color != null) cfg.background = String(k.background ?? k.background_color)
+    if (k.transition != null) cfg.transition = String(k.transition)
+    if (k.transition_time != null) cfg.transition_time = num(k.transition_time, 0.5)
     if (k.frame_height != null || k.frame_width != null) w.set(cameraMob(w.get(CAMERA).m))
   }
 
@@ -301,6 +323,15 @@ export function createAnimEngine(options: EngineOptions = {}) {
   }
 
   /* ------------------------------------------------------------ drawing */
+
+  let sounds: SoundEntry[] = []
+
+  /** Scene transitions, each over the first `dur` seconds of the scene after it. */
+  let transitions: Array<{ t: number; dur: number; kind: string; out: Snap }> = []
+  function transitionAt(t: number) {
+    for (const tr of transitions) if (t >= tr.t && t < tr.t + tr.dur) return tr
+    return null
+  }
 
   function segmentAt(t: number): Segment | null {
     if (!segments.length || t >= duration) return null
@@ -475,6 +506,8 @@ export function createAnimEngine(options: EngineOptions = {}) {
       live.deltas.clear()
       traceCache.clear()
       anyTraced = false
+      transitions = []
+      sounds = []
       if (c) config(c)
       changed()
       drain()
@@ -592,6 +625,41 @@ export function createAnimEngine(options: EngineOptions = {}) {
       }
       liveVersion++
     },
+    /**
+     * sound({src, time_offset, volume, fade_in, fade_out, loop, kind}): at the
+     * cursor (+ time_offset). "music" loops and runs to the timeline's end.
+     */
+    sound(spec: unknown) {
+      run(() => {
+        const a = normArgs(spec, ['src'])
+        if (a.src == null || a.src === '') throw new Error('add_sound needs a file')
+        const music = a.kind === 'music'
+        sounds.push({
+          src: String(a.src), t0: duration + num(a.time_offset, 0), volume: Math.max(0, num(a.volume, music ? 0.3 : 1)),
+          fade_in: Math.max(0, num(a.fade_in, 0)), fade_out: Math.max(0, num(a.fade_out, music ? 1 : 0)),
+          loop: a.loop != null ? !!a.loop : music, kind: music ? 'music' : 'sound',
+          ...(a.t1 != null ? { t1: num(a.t1, 0) } : {}),
+        })
+      })
+    },
+    /**
+     * wait_sound({src, extra}): the timeline lasts until that sound (or the
+     * last one started) has finished, plus extra. Its length comes from the
+     * page (window.__cirSoundDuration(src) → seconds); later commands wait.
+     */
+    wait_sound(spec?: unknown) {
+      run(() => {
+        const a = normArgs(spec, ['src', 'extra'])
+        const s = a.src != null ? [...sounds].reverse().find(x => x.src === String(a.src)) : sounds[sounds.length - 1]
+        if (!s) return
+        const probe = (globalThis as any).__cirSoundDuration
+        if (typeof probe !== 'function') return
+        return Promise.resolve(probe(s.src)).then((len: number) => {
+          const end = s.t0 + Math.max(0, Number(len) || 0) + num(a.extra, 0)
+          if (end > duration + 1e-9) wait(end - duration)
+        })
+      })
+    },
     /** Every ValueTracker's value at timeline time t, live overrides included (the tick payload's anim_v). */
     trackerValues(t: number) {
       return engine.values_at(t)
@@ -637,7 +705,20 @@ export function createAnimEngine(options: EngineOptions = {}) {
       })
     },
     wait(seconds?: unknown) { run(() => wait(seconds)) },
-    section(name: unknown) { run(() => { sections.push({ name: String(name ?? ''), t: duration }) }) },
+    /**
+     * section(name, {transition, transition_time}): a new scene starts here.
+     * With a transition, the scene as it stands now (before the clear that
+     * follows) is kept and drawn going out over the new one's first moments.
+     */
+    section(name: unknown, opts?: unknown) {
+      run(() => {
+        sections.push({ name: String(name ?? ''), t: duration })
+        const o = (opts && typeof opts === 'object' ? opts : {}) as { transition?: string; transition_time?: number }
+        const kind = String(o.transition || cfg.transition || 'none')
+        const dur = num(o.transition_time ?? cfg.transition_time, 0.5)
+        if (kind !== 'none' && dur > 0 && duration > 0) transitions.push({ t: duration, dur, kind, out: w.snapshot() })
+      })
+    },
     value(target: unknown, what: string, args?: unknown): Promise<unknown> {
       return new Promise((resolve, reject) => {
         run(() => {
@@ -651,7 +732,28 @@ export function createAnimEngine(options: EngineOptions = {}) {
     },
     /** Draw time t into pxW × pxH of ctx's current coordinate space (cleared first unless opts.clear is false). */
     renderAt(ctx: CanvasRenderingContext2D, t: number, pxW: number, pxH: number, opts?: { clear?: boolean }) {
-      renderFrame(ctx, frameAt(t), { pxW, pxH, fw: fw(), fh: fh(), clear: opts?.clear })
+      const o = { pxW, pxH, fw: fw(), fh: fh(), clear: opts?.clear }
+      const tr = transitionAt(t)
+      if (!tr) { renderFrame(ctx, frameAt(t), o); return }
+      // Scene transition: the outgoing scene (as it ended) and the incoming one, by kind.
+      const x = smooth((t - tr.t) / tr.dur)
+      const out = new Frame(tr.out), inn = frameAt(t)
+      // Slides move by one frame width (scene units, before the camera's zoom).
+      const zoom = Math.hypot(w.get(CAMERA).m[0], w.get(CAMERA).m[1]) || 1
+      const W = fw() * zoom
+      if (tr.kind === 'slide_left' || tr.kind === 'slide') {
+        renderFrame(ctx, out, { ...o, shiftX: -W * x })
+        renderFrame(ctx, inn, { ...o, clear: false, shiftX: W * (1 - x) })
+      } else if (tr.kind === 'slide_right') {
+        renderFrame(ctx, out, { ...o, shiftX: W * x })
+        renderFrame(ctx, inn, { ...o, clear: false, shiftX: -W * (1 - x) })
+      } else if (tr.kind === 'wipe') {
+        renderFrame(ctx, out, { ...o, clipX: [x * pxW, pxW] })
+        renderFrame(ctx, inn, { ...o, clear: false, clipX: [0, x * pxW] })
+      } else {
+        renderFrame(ctx, out, { ...o, alpha: 1 - x })
+        renderFrame(ctx, inn, { ...o, clear: false, alpha: x })
+      }
     },
     frameAt,
     /** An object as drawn at time t (box, first point, style with fades): for tests and debugging. */
@@ -677,6 +779,8 @@ export function createAnimEngine(options: EngineOptions = {}) {
     get sections() { return sections.slice() },
     get background() { return cfg.background },
     /** Bumps on any timeline change and on any live override (the page redraws when it changes). */
+    /** The sounds on the timeline (rebuilt with the timeline; `version` bumps on any change). */
+    get sounds() { return sounds.slice() },
     get version() { return version + liveVersion },
     get liveVersion() { return liveVersion },
     get frameSize() { return { width: fw(), height: fh() } },
