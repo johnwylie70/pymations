@@ -72,7 +72,7 @@ x = ValueTracker(0)
 axes = Axes(x_range=[0, 4, 1], y_range=[0, 16, 4])
 curve = axes.plot(lambda t: t ** 2, color=BLUE)
 dot = always_redraw(lambda: Dot(axes.c2p(x.get_value(), x.get_value() ** 2), color=YELLOW))
-value = always_redraw(lambda: DecimalNumber(x.get_value() ** 2).next_to(dot, UL))
+value = always_redraw(lambda: DecimalNumber(x.get_value() ** 2).next_to(dot, UP))
 
 play(Create(axes), Create(curve))
 add(dot, value)
@@ -80,7 +80,7 @@ play(x.animate.set_value(4), run_time=3)
 wait()
 ```
 
-<img src="docs/images/readme-follow.jpg" width="800" alt="Three moments of the example: a yellow dot rides up the curve y = x squared, with its value, 0.06, then 4.00, then 16.00, written beside it">
+<img src="docs/images/readme-follow.jpg" width="800" alt="Three moments of the example: a yellow dot rides up the curve y = x squared, with its value, 0.00, then 4.00, then 16.00, written above it">
 
 They are worked out in the browser on every frame, so dragging the scrubber to any moment shows exactly what plays there. [Updaters](docs/updaters.md) has the rest.
 

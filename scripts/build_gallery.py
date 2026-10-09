@@ -273,7 +273,7 @@ def gif(out, target, seconds=3.0, fps=15):
 # scaled to the same height.
 STRIPS = [
     ("readme-hello", "hello", [(None, 1.0), (None, 1.5), (None, 2.0), (None, 4.0)], True),
-    ("readme-follow", "follow", [(None, 1.7), (None, 2.5), (None, 4.0)], True),
+    ("readme-follow", "follow", [(None, 1.0), (None, 2.5), (None, 4.0)], True),
     ("readme-pythagoras", EXAMPLES / "pythagoras.py", [("Conclusion", -0.05), (None, -0.01)], False),
 ]
 
