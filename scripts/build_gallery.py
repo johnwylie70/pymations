@@ -266,28 +266,101 @@ def gif(out, target, seconds=3.0, fps=15):
     print("Recorded %s (%d KB)" % (target.relative_to(ROOT), target.stat().st_size // 1024))
 
 
-def readme_stills():
-    """A still of what the README's first scene draws, beside its code."""
-    from playwright.sync_api import sync_playwright
+# The README's pictures: strips of moments from a scene, side by side.
+#   (file, scene, [(section or None, seconds into it, or from the end when negative)], shared crop)
+# A shared crop cuts every frame to one box round everything drawn in any of
+# them, so the frames line up; otherwise each is cut to its own content and
+# scaled to the same height.
+STRIPS = [
+    ("readme-hello", "hello", [(None, 1.0), (None, 1.5), (None, 2.0), (None, 4.0)], True),
+    ("readme-follow", "follow", [(None, 1.7), (None, 2.5), (None, 4.0)], True),
+    ("readme-pythagoras", EXAMPLES / "pythagoras.py", [("Conclusion", -0.05), (None, -0.01)], False),
+]
+
+# Pixels wide at most: twice the width the README shows them at, for sharp screens.
+STRIP_WIDTH = 2400
+
+STRIP_JS = """async ([moments, shared, gap, pad, maxWidth]) => {
+  const el = document.querySelector('[data-pymations-src]')
+  const p = el.pymationsScene.player, e = p.engine
+  await e.ready()
+  p.setPlaying(false)
+  const at = ([name, s]) => {
+    if (name === null) return s < 0 ? p.duration + s : s
+    const i = e.sections.findIndex((x) => x.name === name)
+    return s < 0 ? e.sections[i].t + s : e.sections[i].t + s
+  }
+  const frames = []
+  for (const m of moments) {
+    p.seek(at(m)); await e.ready(); p.drawn = ''; p.seek(at(m))
+    const c = document.createElement('canvas'); c.width = p.canvas.width; c.height = p.canvas.height
+    c.getContext('2d').drawImage(p.canvas, 0, 0)
+    frames.push(c)
+  }
+  const box = (c) => {
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+      if (d[(y * c.width + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+    }
+    return [x0, y0, x1, y1]
+  }
+  let boxes = frames.map(box)
+  if (shared) { const u = boxes.reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]); boxes = boxes.map(() => u) }
+  boxes = boxes.map(([x0, y0, x1, y1]) => [x0 - pad, y0 - pad, x1 - x0 + 1 + 2 * pad, y1 - y0 + 1 + 2 * pad])
+  const h = Math.max(...boxes.map((b) => b[3]))
+  const widths = boxes.map((b) => b[2] * h / b[3])
+  const out = document.createElement('canvas')
+  out.width = Math.round(widths.reduce((a, b) => a + b, 0) + gap * (frames.length - 1)); out.height = h
+  const g = out.getContext('2d')
+  g.fillStyle = '#000'; g.fillRect(0, 0, out.width, out.height)
+  let x = 0
+  frames.forEach((f, i) => {
+    const [bx, by, bw, bh] = boxes[i]
+    if (i) { g.fillStyle = '#30363d'; g.fillRect(Math.round(x - gap / 2) - 1, h * 0.12, 2, h * 0.76) }
+    g.drawImage(f, bx, by, bw, bh, x, 0, widths[i], h)
+    x += widths[i] + gap
+  })
+  if (out.width <= maxWidth) return out.toDataURL('image/jpeg', 0.88)
+  const small = document.createElement('canvas')
+  small.width = maxWidth; small.height = Math.round(out.height * maxWidth / out.width)
+  const sg = small.getContext('2d'); sg.imageSmoothingQuality = 'high'
+  sg.drawImage(out, 0, 0, small.width, small.height)
+  return small.toDataURL('image/jpeg', 0.88)
+}"""
+
+
+def readme_scene(name):
+    """The source of a README example, by the ```python block's first line after the heading."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    hello = re.search(r"## A first scene.*?```python\n(.*?)```", readme, re.S).group(1)
+    heading = {"hello": "## A first scene", "follow": "## Things that follow each other"}[name]
+    return re.search(re.escape(heading) + r".*?```python\n(.*?)```", readme, re.S).group(1)
+
+
+def readme_stills():
+    """The README's pictures: a strip of moments from each of its examples."""
+    import base64
+    from playwright.sync_api import sync_playwright
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        (tmp / "hello.py").write_text(hello, encoding="utf-8")
-        stills = [("readme-hello", tmp / "hello.py", 2600), ("readme-pythagoras", EXAMPLES / "pythagoras.py", 30000)]
-        for name, scene, _ in stills:
+        for name, scene, _, _ in STRIPS:
+            if isinstance(scene, str):
+                (tmp / (scene + ".py")).write_text(readme_scene(scene), encoding="utf-8")
+                scene = tmp / (scene + ".py")
             build(scene, tmp / "site" / name, say=lambda *a: None)
         server = Serve(tmp / "site")
         try:
             with sync_playwright() as p:
                 b = p.chromium.launch()
-                for name, _, at in stills:
-                    page = b.new_page(viewport={"width": 640, "height": 360}, device_scale_factor=2)
+                for name, _, moments, shared in STRIPS:
+                    page = b.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=2)
                     page.goto(server.url + name + "/index.html")
                     page.wait_for_selector('[data-pymations-status="finished"]', timeout=120000)
-                    page.wait_for_timeout(at)
+                    page.wait_for_function("() => { const s = document.querySelector('[data-pymations-src]').pymationsScene; "
+                                           "return s.player && s.player.duration > 0 }", timeout=60000)
+                    url = page.evaluate(STRIP_JS, [[list(m) for m in moments], shared, 48, 40, STRIP_WIDTH])
                     target = ROOT / "docs" / "images" / (name + ".jpg")
-                    page.screenshot(path=str(target), type="jpeg", quality=85)
+                    target.write_bytes(base64.b64decode(url.split(",", 1)[1]))
                     page.close()
                     print("  %s" % target.relative_to(ROOT))
                 b.close()
@@ -300,7 +373,7 @@ def main():
     parser.add_argument("-o", "--out", default=str(ROOT / "site" / "gallery"))
     parser.add_argument("--shots", action="store_true", help="take the card pictures")
     parser.add_argument("--gif", action="store_true", help="record docs/images/gallery.gif")
-    parser.add_argument("--readme", action="store_true", help="take the README's pictures of its examples")
+    parser.add_argument("--readme", action="store_true", help="make the README's pictures (strips of moments from its examples)")
     args = parser.parse_args()
     out = Path(args.out).resolve()
     if out.exists():
