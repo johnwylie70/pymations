@@ -1,0 +1,36 @@
+{
+  "name": "pymations",
+  "version": "0.1.0",
+  "description": "Maths animations from Python on any web page: the browser half of Pymations, with its animation engine. Runs Manim Community scripts. Python runs in the browser with Pyodide.",
+  "type": "module",
+  "main": "./pymations.js",
+  "module": "./pymations.js",
+  "exports": {
+    ".": "./pymations.js",
+    "./pymations.js": "./pymations.js",
+    "./pymations.py": "./pymations.py",
+    "./pyctures.py": "./pyctures.py",
+    "./engine/*": "./engine/*"
+  },
+  "files": [
+    "pymations.js",
+    "pymations.py",
+    "pyctures.py",
+    "engine/",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES"
+  ],
+  "keywords": ["python", "animation", "maths", "math", "manim", "latex", "katex", "pyodide", "education", "explainer"],
+  "author": "John Wylie",
+  "license": "MIT",
+  "homepage": "https://www.circuitry.dev/pymations",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnwylie70/pymations.git",
+    "directory": "npm"
+  },
+  "bugs": {
+    "url": "https://github.com/johnwylie70/pymations/issues"
+  }
+}

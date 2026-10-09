@@ -1,0 +1,26 @@
+.venv/
+.venv*/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+site/
+.pytest_cache/
+tests/screenshots/
+.DS_Store
+engine/node_modules/
+engine/package-lock.json
+# copied in by scripts/sync_npm.py before publishing
+npm/pymations.js
+npm/pymations.py
+npm/pyctures.py
+npm/engine/
+npm/LICENSE
+npm/THIRD-PARTY-NOTICES
+npm/*.tgz
+
+# Owner notes, kept locally
+PUBLISHING.md
+.circuitry/
+.playwright-mcp/

@@ -1,0 +1,25 @@
+{
+  "runtime_version": "12",
+  "module_version": "6",
+  "engine_sha256": "3a9c02a572ee8acd",
+  "circuitry_commit": "9a1f39f9f+uncommitted",
+  "synced_at": "2026-10-09",
+  "examples": [
+    "pythagoras.py",
+    "derivative.py",
+    "unit_circle_sine.py",
+    "completing_the_square.py",
+    "sum_pairing.py",
+    "euler_identity.py",
+    "moving_around.py",
+    "brace_annotation.py",
+    "moving_frame_box.py",
+    "point_on_shapes.py",
+    "sin_cos_plot.py",
+    "grid_camera.py",
+    "tangent_slider.py",
+    "riemann_sum.py",
+    "cycloid.py",
+    "matrix_transform.py"
+  ]
+}
