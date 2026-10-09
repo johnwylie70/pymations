@@ -96,7 +96,7 @@ export function collectItems(f: Frame, roots?: number[]): DrawItem[] {
     if (!mob) return
     if (hasGeom(mob)) {
       items.push(o
-        ? { paths: mob.paths, m: o.m, style: o.style, alpha: o.alpha, partial: o.partial, z: mob.z, text: mob.text, image: mob.image, shadow: mob.shadow, evenodd: mob.evenodd }
+        ? { paths: mob.paths, m: o.m, style: o.style, alpha: o.alpha, partial: o.partial, z: mob.z, text: mob.text, image: o.image ?? mob.image, shadow: mob.shadow, evenodd: mob.evenodd }
         : { paths: mob.paths, m: mob.m, style: mob.style, alpha: 1, partial: null, z: mob.z, text: mob.text, image: mob.image, shadow: mob.shadow, evenodd: mob.evenodd })
     }
     for (const c of mob.children) walk(c)

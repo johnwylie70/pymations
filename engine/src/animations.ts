@@ -19,12 +19,12 @@ import { alignPaths, bbox, circleSub, lerpPaths, pointAt, polySub, rectCorners, 
 import { linear, rateByName, smooth, thereAndBack, type RateFn } from './rate'
 import {
   addToDisplay, become, boxCenter, centerOf, critical, family, familyBox, hasGeom, isShown, leaves,
-  removeFromDisplay, styleFamily, transformFamily, World, type Mob, type Snap, type Style,
+  removeFromDisplay, styleFamily, transformFamily, World, type ImageRef, type Mob, type Snap, type Style,
 } from './scene'
 import { endPoint, evalClock, evalValue, isMobRef, normArgs, num, resolvePoint, resolveTarget, resolveVec, withPoint, type Kw } from './args'
 import type { Box } from './geometry'
 import { runOp, rotationMat, type OpEnv } from './ops'
-import { normColor, PURE_YELLOW, YELLOW } from './color'
+import { lerpColor, normColor, PURE_YELLOW, YELLOW } from './color'
 import { Frame, lerpStyle, type DrawItem } from './frame'
 import { isNumber, setNumberValue } from './kinds'
 
@@ -823,6 +823,20 @@ function matchTex(w: World, src: number, dst: number, cs: Pt, cd: Pt) {
   return { pairs, in: inn, out }
 }
 
+/** A picture's corners, border, crop and box, blended (an .animate of set_corner_radius / crop / set_border). */
+function lerpImage(a: ImageRef, b: ImageRef, t: number): ImageRef {
+  const L = (x: number, y: number) => x + (y - x) * t
+  const ca = a.crop || [0, 0, 1, 1], cb = b.crop || [0, 0, 1, 1]
+  const ba = a.border, bb = b.border
+  const border = ba || bb
+    ? { color: lerpColor(ba?.color ?? bb.color, bb?.color ?? ba.color, t), width: L(ba?.width ?? 0, bb?.width ?? 0) }
+    : undefined
+  return {
+    ...b, w: L(a.w, b.w), h: L(a.h, b.h), radius: L(a.radius || 0, b.radius || 0), border,
+    crop: (a.crop || b.crop) ? [L(ca[0], cb[0]), L(ca[1], cb[1]), L(ca[2], cb[2]), L(ca[3], cb[3])] : undefined,
+  }
+}
+
 /** A part's shape, whatever its place and size: points relative to its box, in units of its height. */
 function shapeKey(w: World, id: number): string {
   const paths = worldPaths(w.get(id))
@@ -900,6 +914,7 @@ function buildAnimateOn(w: World, end: World, id: number): Leaf {
       const vs = s0.data?.value, ve = m.data?.value
       v.set({
         ...m, m: lerpMat(s0.m, m.m, r1), style: lerpStyle(s0.style, m.style, r1),
+        ...(s0.image && m.image && s0.image !== m.image ? { image: lerpImage(s0.image, m.image, r1) } : {}),
         data: typeof vs === 'number' && typeof ve === 'number' ? { ...m.data, value: vs + (ve - vs) * r1 } : m.data,
       })
     }
@@ -936,7 +951,7 @@ function buildAnimateOn(w: World, end: World, id: number): Leaf {
     const s = w.get(i), e = end.get(i)
     if (s === e) continue
     const p: Part = { id: i, s, e, inv: invert(s.m) }
-    if (hasGeom(s) && (s.paths !== e.paths || s.text !== e.text)) p.pairs = morphPairs(w, [i], end, [i], centerOf(end, i), centerOf(w, i))
+    if (hasGeom(s) && (s.paths !== e.paths || s.text !== e.text || (!!s.image !== !!e.image))) p.pairs = morphPairs(w, [i], end, [i], centerOf(end, i), centerOf(w, i))
     parts.push(p)
   }
   return {
@@ -949,6 +964,7 @@ function buildAnimateOn(w: World, end: World, id: number): Leaf {
         if (p.pairs) { o.replace = morphItems(p.pairs, x, linear, 0); return }
         if (p.s.m !== p.e.m) o.m = mul(mul(lerpMat(p.s.m, p.e.m, x), p.inv), o.m)
         if (p.s.style !== p.e.style) o.style = lerpStyle(o.style, p.e.style, x)
+        if (p.s.image && p.e.image && p.s.image !== p.e.image) o.image = lerpImage(p.s.image, p.e.image, x)
         const v0 = p.s.data?.value, v1 = p.e.data?.value
         if (typeof v0 === 'number' && typeof v1 === 'number' && v0 !== v1) o.value = v0 + (v1 - v0) * x
       })

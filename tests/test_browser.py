@@ -165,3 +165,51 @@ def test_single_file_plays_a_reference_scene_from_disk(browser, tmp_path):
     w = Watched(browser, out.as_uri())
     w.check("single-pythagoras.png", at_least=4.0)
     w.page.close()
+
+
+def _tone(path, seconds, freq):
+    import math
+    import struct
+    import wave
+    w = wave.open(str(path), "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(22050)
+    w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * freq * i / 22050)))
+                           for i in range(int(seconds * 22050))))
+    w.close()
+
+
+SOUND = """(el) => { const p = el.pymationsScene.player
+  return { t: p.t, duration: p.duration, sounds: (p.engine.sounds || []).length, live: p.sound.live.length } }"""
+
+
+def test_run_sound_follows_the_player(browser, pymations_run, tmp_path):
+    # A browser of its own, from the same Playwright: sound without a tap first.
+    _tone(tmp_path / "voice.wav", 2.5, 440)
+    _tone(tmp_path / "click.wav", 0.2, 880)
+    (tmp_path / "scene.py").write_text(
+        "from pymations import *\n"
+        "music('voice.wav', volume=0.2)\n"
+        "section('Intro', sound='voice.wav')\n"
+        "play(Write(Text('Hello')))\n"
+        "add_sound('click.wav')\n"
+        "play(Create(Circle()))\n"
+        "wait_for_sound()\n")
+    p = pymations_run(tmp_path / "scene.py")
+    b = browser.browser_type.launch(args=["--autoplay-policy=no-user-gesture-required"])
+    try:
+        w = Watched(b, p.url)
+        w.wait_playing(0.5)
+        st = w.scene.evaluate(SOUND)
+        assert st["sounds"] == 3 and st["live"] >= 2, st
+        assert st["duration"] >= 2.5                  # the section lasts as long as its voice-over
+        w.page.mouse.move(480, 270)
+        w.page.click(".pymations-play")               # pause: silence
+        assert w.scene.evaluate(SOUND)["live"] == 0
+        w.page.click(".pymations-play")               # play again: the sounds come back
+        w.page.wait_for_timeout(300)
+        assert w.scene.evaluate(SOUND)["live"] >= 1
+        assert not w.errors, w.errors
+    finally:
+        b.close()

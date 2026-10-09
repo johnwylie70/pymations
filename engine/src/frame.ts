@@ -31,6 +31,8 @@ export interface Over {
   partial: [number, number] | null
   /** A ValueTracker's (or DecimalNumber's) value mid-animation. */
   value?: number
+  /** A picture's corners, border or crop mid-animation. */
+  image?: ImageRef
   /** Draw these instead of the object and everything under it (morphs). */
   replace?: DrawItem[]
   hidden?: boolean
