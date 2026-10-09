@@ -31,8 +31,8 @@ Updaters are recorded as formulas the browser works out every frame, so scrubbin
 ## Text and maths
 
 - **Equations are drawn with KaTeX, not LaTeX.** No LaTeX install is needed, and most maths works, but LaTeX packages, `TexTemplate` and custom preambles do not. Sizes are within a few per cent of Manim's, because KaTeX's fonts differ slightly from Computer Modern.
-- **One text font.** `Text` uses Liberation Sans, which comes with Pymations, so it looks the same everywhere. `font=` is accepted and ignored. Text sizes are close to Manim's, which depend on the font your system gives it.
-- `MarkupText` understands bold, italic and colour spans, not all of Pango's markup.
+- **Fonts come with Pymations.** `Text` has three built-in families: `font="sans"` (Liberation Sans, the default), `"serif"` and `"mono"`, so text looks the same on every computer. Another family name is drawn with the nearest of the three (`"Times New Roman"` as serif, `"Courier"` as mono), and a font file beside your scene (`font="Brand.ttf"`) is used as it is. Text sizes are close to Manim's, which depend on the font your system gives it.
+- `MarkupText` understands bold, italic and colour spans, not all of Pango's markup; underline is ignored.
 - `Code` colours code with a small built-in palette; `formatter_style` has no effect.
 
 ## Not available
@@ -41,7 +41,7 @@ Updaters are recorded as formulas the browser works out every frame, so scrubbin
 - **Interaction.** `interactive_embed()` and `embed()` do nothing.
 - **Waiting on a condition.** `wait_until(condition)` and `wait(stop_condition=…)` wait for the full time and do not check the condition.
 - **Image operations** (`ImageMobject(..., remove_background=True, resize=…, trace=…)`) work only in Circuitry Studio; a plain `ImageMobject` works everywhere.
-- **Boolean shapes** (`Union`, `Intersection`, `Difference`, `Exclusion`), `ApplyComplexFunction`, `PhaseFlow`, logarithmic axes, and `ImageMobject` from a numpy array (a file name or web address works).
+- **Boolean shapes** (`Union`, `Intersection`, `Difference`, `Exclusion`), `ApplyComplexFunction`, `PhaseFlow` and logarithmic axes.
 - `override_animate` and custom `Animation` subclasses that change points in `interpolate_mobject`: the browser draws animations, so Python code that runs per frame of an animation is not called.
 
 ## Small differences

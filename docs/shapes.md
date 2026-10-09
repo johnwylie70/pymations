@@ -63,7 +63,7 @@ Line widths are in scene units (width 4 is 0.04 units), and scaling a shape does
 | `BackgroundRectangle(thing)` | a dark box behind something | black, 75% |
 | `Brace(thing, direction=DOWN)` | a curly brace beside something | filled white |
 | `SVGMobject("file.svg")` | the shapes in an SVG file | |
-| `ImageMobject("picture.png")` | a picture (file name or web address) | |
+| `ImageMobject("picture.png")` | a picture: a file name, a web address, or a numpy array of pixels | |
 
 Make a shape from your own points with `VMobject().set_points_as_corners(points)` (straight lines) or `set_points_smoothly(points)` (a smooth curve through them).
 

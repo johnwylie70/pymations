@@ -167,10 +167,10 @@ html,body{{margin:0;height:100%;overflow:hidden;background:#000}}
            script=_script_for_html((WEB / "pymations.js").read_text(encoding="utf-8")))
 
 
-# A relative path to an image or a sound: no scheme, not absolute, a known
+# A relative path to a picture, a sound or a font file: no scheme, not absolute, a known
 # extension. The browser half (pymations.js, IMAGE_PATH) makes the same test.
 IMAGE_PATH = re.compile(r"^(?![a-z][a-z0-9+.-]*:|/)(?:\./)?[^\s\"'<>?#]+\."
-                        r"(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac)$", re.I)
+                        r"(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|ttf|otf|woff2?)$", re.I)
 _LITERAL = re.compile(r"""(['"])((?:\\.|(?!\1)[^\\\n])*)\1""")
 
 

@@ -2,7 +2,7 @@
   "runtime_version": "12",
   "module_version": "15",
   "engine_sha256": "3f1a03ae774fb6ec",
-  "circuitry_commit": "654ade50f",
+  "circuitry_commit": "d552a25ff",
   "synced_at": "2026-10-09",
   "examples": [
     "pythagoras.py",

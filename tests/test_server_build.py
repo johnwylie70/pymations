@@ -217,3 +217,17 @@ def test_release_readme_points_pictures_at_github():
         assert (ROOT / path).is_file(), path                 # they show in a checkout and on GitHub
         assert base + path in out                            # and on PyPI
     assert '<div data-pymations-src="hello.py">' in out      # code examples are left alone
+
+
+def test_build_includes_pictures_sounds_and_fonts_the_scene_names(tmp_path):
+    for name in ("photo.png", "voice.wav", "Brand.ttf"):
+        (tmp_path / name).write_bytes(b"data of " + name.encode())
+    scene = tmp_path / "scene.py"
+    scene.write_text("from pymations import *\nadd(ImageMobject('photo.png'))\nadd_sound('voice.wav')\n"
+                     "play(Write(Text('Hi', font='Brand.ttf')))\n")
+    page = build_mod.build(scene, tmp_path / "one.html", say=lambda *a: None).read_text()
+    files = json.loads(re.search(r'id="pymations-inline">(.*?)</script>', page, re.S).group(1))["files"]
+    assert sorted(files) == ["Brand.ttf", "photo.png", "voice.wav"]
+    build_mod.build(scene, tmp_path / "site", say=lambda *a: None)
+    for name in ("photo.png", "voice.wav", "Brand.ttf"):
+        assert (tmp_path / "site" / name).is_file(), name

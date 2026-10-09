@@ -68,13 +68,14 @@ function prop(obj, name) {
 
 // ---------------------------------------------------------------- images by relative path
 
-/** A relative path to an image or a sound: no scheme, not absolute, a known extension (pages.IMAGE_PATH). */
-const IMAGE_PATH = /^(?![a-z][a-z0-9+.-]*:|\/)(?:\.\/)?[^\s"'<>?#]+\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac)$/i
+/** A relative path to a picture, a sound or a font file: no scheme, not absolute, a known extension (pages.IMAGE_PATH). */
+const IMAGE_PATH = /^(?![a-z][a-z0-9+.-]*:|\/)(?:\.\/)?[^\s"'<>?#]+\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|ttf|otf|woff2?)$/i
 export function isRelativeImagePath(s) { return typeof s === 'string' && s.length < 300 && IMAGE_PATH.test(s) }
 export const IMAGE_TYPES = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif',
   mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2',
 }
 /** The key an image is packed under: as written, without a leading "./". */
 const packedKey = (s) => s.replace(/^(\.\/)+/, '')

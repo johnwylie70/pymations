@@ -36,7 +36,7 @@ A scene that does not use the animation module (a plain Pyctures drawing) leaves
 
 ## Files your scene uses
 
-- Pictures named in your code by a relative path (`ImageMobject("photo.png")`) are found and included: copied into the folder, or packed into the one file.
+- Pictures, sounds and font files named in your code by a relative path (`ImageMobject("photo.png")`, `add_sound("voice.mp3")`, `font="Brand.ttf"`) are found and included: copied into the folder, or packed into the one file.
 - Anything else the scene opens or imports (an SVG file, data, your own module) is added with `--add`, which can be given more than once and takes folders:
 
 ```bash

@@ -6,7 +6,7 @@
 from pymations import *
 
 title = Text("Hello", font_size=72, color=YELLOW)
-note = Text("in Liberation Sans", font_size=30, slant=ITALIC).next_to(title, DOWN)
+note = Text("in a serif font", font="serif", font_size=30, slant=ITALIC).next_to(title, DOWN)
 play(Write(title))
 play(FadeIn(note, shift=UP))
 wait()
@@ -16,9 +16,10 @@ wait()
 - `weight=BOLD` and `slant=ITALIC` choose the bold and italic faces.
 - `t2c={"word": RED}` colours parts of the text.
 - Each letter is its own part (`title[0]` is "H"), so `Write` draws letters in turn.
-- Text is drawn with Liberation Sans, a font that comes with Pymations, so it looks the same on every computer. `font=` is accepted and has no effect.
+- `font=` chooses the font. Three come with Pymations, so text looks the same on every computer: `"sans"` (Liberation Sans, the default), `"serif"` and `"mono"`. Another family name is drawn with the nearest of the three (`"Georgia"` as serif, `"Courier"` as mono).
+- Your own font: put the file beside your scene and name it, `Text("Hello", font="Brand.ttf")`. `.ttf`, `.otf`, `.woff` and `.woff2` work, and `pymations build` includes the file.
 
-Also: `MarkupText("<b>bold</b> and <i>italic</i>")` (bold, italic and colour spans), `Paragraph("line one", "line two")`, `BulletedList("one", "two")`, `Title("A title")` (with a line under it), and `Code(code_string=..., language="python")` (code with line numbers and colours).
+Also: `MarkupText("<b>bold</b> and <i>italic</i>")` (bold, italic and `<span foreground="…">` colour spans), `Paragraph("line one", "line two")`, `BulletedList("one", "two")`, `Title("A title")` (with a line under it), and `Code(code_string=..., language="python")` (code with line numbers and colours).
 
 ## Maths
 

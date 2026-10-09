@@ -50,7 +50,7 @@ class Where(Scene):
 ## 3. If it looks different
 
 - **3D scenes play flat**, seen from the front.
-- **Text uses one font,** Liberation Sans, whatever `font=` says.
+- **Fonts:** a font named in the script is drawn with the nearest of Pymations' three (sans, serif and mono). Put the font's file beside the scene and name the file (`font="Brand.ttf"`) to use it exactly.
 - **A note in the output that an updater runs in Python** means it could not be turned into a formula for the browser. It still works; dragging the scrubber back resets what it did. Using `np.sin` rather than `math.sin` usually fixes it.
 
 ## 4. Keep it running in both

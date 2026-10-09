@@ -12,7 +12,7 @@ When the output ends in ``.html`` (``-o scene.html``) the result is ONE file
 holding all of that (the engine and its fonts only when the scene uses the
 animation module), which also opens straight from disk.
 
-Pictures and sounds the scene names by a relative path are found in its string literals and
+Pictures, sounds and font files the scene names by a relative path are found in its string literals and
 included: copied beside the page in a folder, packed into a single file. A
 file that is named but not there is a warning, not an error.
 """
@@ -79,7 +79,7 @@ def build_single(scene, out, add=(), title=None, say=print):
     say("Built %s (%d KB%s)" % (_short(out), (len(page.encode("utf-8")) + 1023) // 1024,
                                  ", with the animation engine and its fonts" if anim else ""))
     if images:
-        say("  with %d picture or sound file%s: %s" % (len(images), "" if len(images) == 1 else "s", ", ".join(images)))
+        say("  with %d picture, sound or font file%s: %s" % (len(images), "" if len(images) == 1 else "s", ", ".join(images)))
     say("One file: open it in a browser, or put it on any website.")
     return out
 
