@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1 + 2 + ... + n · Pymations</title>
+<meta name="description" content="Gauss&#x27;s pairing trick for the sum of the first n numbers. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:title" content="1 + 2 + ... + n · Pymations">
+<meta property="og:description" content="Gauss&#x27;s pairing trick for the sum of the first n numbers. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:image" content="https://johnwylie70.github.io/pymations/thumbs/pythagoras.jpg">
+<style>
+:root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 40px; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 0.45em; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-top: 8px; }
+.lead { font-size: 18px; color: var(--dim); max-width: 720px; margin: 0 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 40px; }
+.install { font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; display: inline-flex; gap: 12px; align-items: center; }
+.install button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--text);
+       text-decoration: none; background: var(--panel); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #062a33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-decoration: none; color: var(--text);
+        transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card img, .card .noimg { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.card div { padding: 12px 14px 14px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; }
+.card p { margin: 0; color: var(--dim); font-size: 14px; }
+.tag { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+footer { color: var(--dim); font-size: 14px; padding-top: 48px; padding-bottom: 48px; }
+.scene { width: 100%; aspect-ratio: 16 / 9; max-height: 75vh; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.crumbs { padding-top: 24px; font-size: 14px; }
+.scene-head h1 { font-size: clamp(26px, 5vw, 38px); margin: 8px 0 4px; }
+.scene-head p { margin: 0 0 16px; color: var(--dim); }
+.cols { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+@media (min-width: 900px) { .cols { grid-template-columns: 2fr 1fr; } }
+pre { margin: 0; background: var(--panel) !important; border: 1px solid var(--line); border-radius: 12px; padding: 16px !important;
+      overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.cols > div { min-width: 0; }
+pre code.hljs { padding: 0; background: none; }
+.side h2 { font-size: 16px; margin: 0 0 8px; }
+.side pre { font-size: 13px; padding: 10px 12px !important; margin-bottom: 16px; }
+.side p { color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<div class="crumbs"><a href="index.html">← All animations</a></div>
+<div class="scene-head"><h1>1 + 2 + ... + n</h1><p>Gauss&#x27;s pairing trick for the sum of the first n numbers. This is a <a href="https://www.manim.community">Manim Community</a> script, unchanged.</p></div>
+<div class="scene" data-pymations-src="sum_pairing.py" data-pymations-loop></div>
+<div class="cols"><div><pre><code class="language-python"># A real Manim Community script, unchanged. Run it:   pymations run sum_pairing.py
+# Share it:   pymations build sum_pairing.py -o sum_pairing.html
+
+from manim import *
+
+# Explainer: 1 + 2 + ... + n by pairing two staircases into an n by (n + 1) rectangle.
+
+N = 5
+U = 0.6
+STAIR_COL, COPY_COL = BLUE, ORANGE
+
+
+def staircase(color):
+    # Column k (0-based) holds k + 1 unit squares, bottoms aligned.
+    cols = VGroup()
+    for k in range(N):
+        col = VGroup(*[Square(side_length=U) for _ in range(k + 1)]).arrange(UP, buff=0)
+        cols.add(col)
+    cols.arrange(RIGHT, buff=0, aligned_edge=DOWN)
+    cols.set_stroke(WHITE, width=2).set_fill(color, opacity=0.7)
+    return cols
+
+
+class Staircase(Scene):
+    def construct(self):
+        title = Text(&quot;Adding 1 + 2 + ... + n&quot;, font_size=40).to_edge(UP)
+        self.play(Write(title))
+
+        stair = staircase(STAIR_COL).move_to(LEFT * 2.5 + DOWN * 0.6)
+        terms = VGroup(*[MathTex(str(k + 1)).next_to(stair[k], DOWN) for k in range(N)])
+        for col, t in zip(stair, terms):
+            self.play(LaggedStart(*[FadeIn(sq, shift=DOWN * 0.3) for sq in col], lag_ratio=0.2), FadeIn(t), run_time=0.8)
+
+        s = MathTex(&quot;S&quot;, &quot;=&quot;, &quot;1 + 2 + 3 + 4 + 5&quot;).to_edge(RIGHT, buff=0.8)
+        self.play(Write(s))
+        self.wait(1.5)
+
+
+class Pairing(Scene):
+    def construct(self):
+        stair = staircase(STAIR_COL).move_to(LEFT * 2.5 + DOWN * 0.6)
+        self.add(stair)
+
+        twin = staircase(COPY_COL).move_to(stair)
+        self.play(FadeIn(twin))
+        self.play(twin.animate.shift(RIGHT * 4.5))
+        self.play(Rotate(twin, PI))
+        self.play(twin.animate.next_to(stair[0], UP, buff=0, aligned_edge=LEFT), run_time=1.5)
+
+        rect = VGroup(stair, twin)
+        width_brace = Brace(rect, DOWN)
+        width_label = MathTex(&quot;n&quot;).next_to(width_brace, DOWN)
+        height_brace = Brace(rect, RIGHT)
+        height_label = MathTex(&quot;n + 1&quot;).next_to(height_brace, RIGHT)
+        self.play(GrowFromCenter(width_brace), Write(width_label))
+        self.play(GrowFromCenter(height_brace), Write(height_label))
+
+        two_s = MathTex(&quot;2S&quot;, &quot;=&quot;, &quot;n(n+1)&quot;).to_edge(RIGHT, buff=0.8).shift(UP * 1.5)
+        self.play(Write(two_s))
+        self.wait(1.5)
+
+
+class Formula(MovingCameraScene):
+    def construct(self):
+        two_s = MathTex(&quot;2S&quot;, &quot;=&quot;, &quot;n(n+1)&quot;, font_size=72)
+        self.add(two_s)
+        self.wait(0.5)
+        s = MathTex(&quot;S&quot;, &quot;=&quot;, r&quot;\frac{n(n+1)}{2}&quot;, font_size=72)
+        self.play(TransformMatchingTex(two_s, s), run_time=1.5)
+
+        check = MathTex(&quot;1 + 2 + 3 + 4 + 5&quot;, &quot;=&quot;, r&quot;\frac{5 \cdot 6}{2}&quot;, &quot;=&quot;, &quot;15&quot;).next_to(s, DOWN, buff=1)
+        self.play(Write(check), run_time=2)
+        self.play(Indicate(check[4]))
+        box = SurroundingRectangle(s, color=YELLOW, buff=0.3)
+        self.play(Create(box))
+        self.play(self.camera.frame.animate.scale(0.7).move_to(s), run_time=1.5)
+        self.wait(1.5)
+</code></pre></div>
+<div class="side"><h2>Run it yourself</h2>
+<pre>pip install pymations
+pymations run sum_pairing.py</pre>
+<h2>Put it on your website</h2>
+<pre>pymations build sum_pairing.py -o site/</pre>
+<p>Python runs in the visitor's browser, so any static host works. <a href="https://github.com/johnwylie70/pymations/blob/main/docs/building-pages.md">How</a> · <a href="https://github.com/johnwylie70/pymations/blob/main/examples/sum_pairing.py">This file on GitHub</a></p>
+<p>Hover over the animation for the scrubber: pause, replay, or drag to any moment.</p>
+</div></div>
+</main>
+<footer>Pymations 0.1.0 · MIT licence · <a href="https://github.com/johnwylie70/pymations">GitHub</a> · <a href="https://pypi.org/project/pymations/">PyPI</a> · <a href="https://www.npmjs.com/package/pymations">npm</a><br>Pymations is an independent project, not affiliated with Manim. It is also built into <a href="https://www.circuitry.dev">Circuitry Studio</a>, where these scripts run in a code editor with a live preview beside the code: <a href="https://www.circuitry.dev/pymations">circuitry.dev/pymations</a>.</footer>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll()</script>
+<script type="module" src="pymations/pymations.js"></script>
+</body>
+</html>

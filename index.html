@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pymations: maths animations in Python, in your browser</title>
+<meta name="description" content="Maths explainer animations written in Python, playing live in your browser. Runs Manim Community scripts. Click any one to see its code.">
+<meta property="og:title" content="Pymations: maths animations in Python, in your browser">
+<meta property="og:description" content="Maths explainer animations written in Python, playing live in your browser. Runs Manim Community scripts. Click any one to see its code.">
+<meta property="og:image" content="https://johnwylie70.github.io/pymations/thumbs/pythagoras.jpg">
+<style>
+:root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 40px; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 0.45em; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-top: 8px; }
+.lead { font-size: 18px; color: var(--dim); max-width: 720px; margin: 0 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 40px; }
+.install { font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; display: inline-flex; gap: 12px; align-items: center; }
+.install button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--text);
+       text-decoration: none; background: var(--panel); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #062a33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-decoration: none; color: var(--text);
+        transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card img, .card .noimg { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.card div { padding: 12px 14px 14px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; }
+.card p { margin: 0; color: var(--dim); font-size: 14px; }
+.tag { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+footer { color: var(--dim); font-size: 14px; padding-top: 48px; padding-bottom: 48px; }
+.scene { width: 100%; aspect-ratio: 16 / 9; max-height: 75vh; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.crumbs { padding-top: 24px; font-size: 14px; }
+.scene-head h1 { font-size: clamp(26px, 5vw, 38px); margin: 8px 0 4px; }
+.scene-head p { margin: 0 0 16px; color: var(--dim); }
+.cols { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+@media (min-width: 900px) { .cols { grid-template-columns: 2fr 1fr; } }
+pre { margin: 0; background: var(--panel) !important; border: 1px solid var(--line); border-radius: 12px; padding: 16px !important;
+      overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.cols > div { min-width: 0; }
+pre code.hljs { padding: 0; background: none; }
+.side h2 { font-size: 16px; margin: 0 0 8px; }
+.side pre { font-size: 13px; padding: 10px 12px !important; margin-bottom: 16px; }
+.side p { color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+<h1>Pymations<small>Maths animations in Python, drawn in your web browser</small></h1>
+<p class="lead">Every animation below is a short Python program, playing live in your browser with its code beside it. Pymations runs <a href="https://www.manim.community">Manim Community</a> scripts: the ones marked "Manim script" are unchanged. Pymations is an independent project, not affiliated with Manim.</p>
+<div class="actions"><span class="install">pip install pymations<button data-copy="pip install pymations">Copy</button></span><a class="btn primary" href="https://github.com/johnwylie70/pymations">Star on GitHub</a><a class="btn" href="https://github.com/johnwylie70/pymations/tree/main/docs">Docs</a><a class="btn" href="https://www.circuitry.dev/pymations">Edit and run one</a></div>
+</header>
+<main><div class="grid">
+<a class="card" href="pythagoras.html"><img src="thumbs/pythagoras.jpg" alt="Pythagoras" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Pythagoras<span class="tag">Manim script</span></h3><p>The theorem shown by rearranging four right triangles in a square.</p></div></a>
+<a class="card" href="derivative.html"><img src="thumbs/derivative.jpg" alt="What is a derivative?" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>What is a derivative?<span class="tag">Manim script</span></h3><p>A secant line closing in on the tangent.</p></div></a>
+<a class="card" href="unit_circle_sine.html"><img src="thumbs/unit_circle_sine.jpg" alt="Sine from the unit circle" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Sine from the unit circle<span class="tag">Manim script</span></h3><p>A point going round the circle draws the sine wave.</p></div></a>
+<a class="card" href="completing_the_square.html"><img src="thumbs/completing_the_square.jpg" alt="Completing the square" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Completing the square<span class="tag">Manim script</span></h3><p>The algebra, step by step, beside the picture.</p></div></a>
+<a class="card" href="euler_identity.html"><img src="thumbs/euler_identity.jpg" alt="Euler&#x27;s identity" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Euler&#x27;s identity<span class="tag">Manim script</span></h3><p>e to the i pi, one step at a time.</p></div></a>
+<a class="card" href="sum_pairing.html"><img src="thumbs/sum_pairing.jpg" alt="1 + 2 + ... + n" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>1 + 2 + ... + n<span class="tag">Manim script</span></h3><p>Gauss&#x27;s pairing trick for the sum of the first n numbers.</p></div></a>
+<a class="card" href="tangent_slider.html"><img src="thumbs/tangent_slider.jpg" alt="Sliding a tangent line" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Sliding a tangent line<span class="tag">Manim script</span></h3><p>A tangent line slides along a curve, its slope shown as it goes.</p></div></a>
+<a class="card" href="riemann_sum.html"><img src="thumbs/riemann_sum.jpg" alt="Riemann sums" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Riemann sums<span class="tag">Manim script</span></h3><p>Rectangles under a curve, getting thinner, closing in on the area.</p></div></a>
+<a class="card" href="cycloid.html"><img src="thumbs/cycloid.jpg" alt="A cycloid" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>A cycloid<span class="tag">Manim script</span></h3><p>A point on a rolling wheel traces its path.</p></div></a>
+<a class="card" href="matrix_transform.html"><img src="thumbs/matrix_transform.jpg" alt="Moving the plane" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Moving the plane<span class="tag">Manim script</span></h3><p>The grid and the basis vectors moved together by a shear and a quarter turn.</p></div></a>
+<a class="card" href="sin_cos_plot.html"><img src="thumbs/sin_cos_plot.jpg" alt="Sine and cosine" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Sine and cosine<span class="tag">Manim script</span></h3><p>Two curves on one set of axes, with labels.</p></div></a>
+<a class="card" href="grid_camera.html"><img src="thumbs/grid_camera.jpg" alt="Moving the camera" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Moving the camera<span class="tag">Manim script</span></h3><p>The camera frame zooms and moves over a grid.</p></div></a>
+<a class="card" href="moving_frame_box.html"><img src="thumbs/moving_frame_box.jpg" alt="A moving box" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>A moving box<span class="tag">Manim script</span></h3><p>A box that moves from one part of an equation to another.</p></div></a>
+<a class="card" href="brace_annotation.html"><img src="thumbs/brace_annotation.jpg" alt="Braces" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Braces<span class="tag">Manim script</span></h3><p>A brace and its label under a line.</p></div></a>
+<a class="card" href="point_on_shapes.html"><img src="thumbs/point_on_shapes.jpg" alt="Points on shapes" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Points on shapes<span class="tag">Manim script</span></h3><p>Dots placed on a circle, a square and a line.</p></div></a>
+<a class="card" href="moving_around.html"><img src="thumbs/moving_around.jpg" alt="Moving around" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Moving around<span class="tag">Manim script</span></h3><p>One square moved, recoloured, scaled and turned.</p></div></a>
+<a class="card" href="equation_steps.html"><img src="thumbs/equation_steps.jpg" alt="Equation steps" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Equation steps</h3><p>Solving 2x + 3 = 11, with matching parts moving into place.</p></div></a>
+<a class="card" href="two_scenes.html"><img src="thumbs/two_scenes.jpg" alt="Two scenes" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Two scenes</h3><p>Every Scene class in a file plays, in order.</p></div></a>
+<a class="card" href="with_pyctures.html"><img src="thumbs/with_pyctures.jpg" alt="With Pyctures" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>With Pyctures</h3><p>A background drawn with ctx every frame, the animation on top.</p></div></a>
+<a class="card" href="hello.html"><img src="thumbs/hello.jpg" alt="Hello" loading="lazy" onerror="this.outerHTML='<span class=noimg></span>'"><div><h3>Hello</h3><p>The first scene: a square turned into a circle.</p></div></a>
+</div></main>
+<footer>Pymations 0.1.0 · MIT licence · <a href="https://github.com/johnwylie70/pymations">GitHub</a> · <a href="https://pypi.org/project/pymations/">PyPI</a> · <a href="https://www.npmjs.com/package/pymations">npm</a><br>Pymations is an independent project, not affiliated with Manim. It is also built into <a href="https://www.circuitry.dev">Circuitry Studio</a>, where these scripts run in a code editor with a live preview beside the code: <a href="https://www.circuitry.dev/pymations">circuitry.dev/pymations</a>.</footer>
+<script>
+document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => {
+  navigator.clipboard.writeText(b.dataset.copy).then(() => { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1200) })
+})
+</script>
+</body>
+</html>

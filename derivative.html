@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>What is a derivative? · Pymations</title>
+<meta name="description" content="A secant line closing in on the tangent. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:title" content="What is a derivative? · Pymations">
+<meta property="og:description" content="A secant line closing in on the tangent. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:image" content="https://johnwylie70.github.io/pymations/thumbs/pythagoras.jpg">
+<style>
+:root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 40px; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 0.45em; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-top: 8px; }
+.lead { font-size: 18px; color: var(--dim); max-width: 720px; margin: 0 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 40px; }
+.install { font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; display: inline-flex; gap: 12px; align-items: center; }
+.install button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--text);
+       text-decoration: none; background: var(--panel); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #062a33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-decoration: none; color: var(--text);
+        transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card img, .card .noimg { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.card div { padding: 12px 14px 14px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; }
+.card p { margin: 0; color: var(--dim); font-size: 14px; }
+.tag { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+footer { color: var(--dim); font-size: 14px; padding-top: 48px; padding-bottom: 48px; }
+.scene { width: 100%; aspect-ratio: 16 / 9; max-height: 75vh; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.crumbs { padding-top: 24px; font-size: 14px; }
+.scene-head h1 { font-size: clamp(26px, 5vw, 38px); margin: 8px 0 4px; }
+.scene-head p { margin: 0 0 16px; color: var(--dim); }
+.cols { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+@media (min-width: 900px) { .cols { grid-template-columns: 2fr 1fr; } }
+pre { margin: 0; background: var(--panel) !important; border: 1px solid var(--line); border-radius: 12px; padding: 16px !important;
+      overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.cols > div { min-width: 0; }
+pre code.hljs { padding: 0; background: none; }
+.side h2 { font-size: 16px; margin: 0 0 8px; }
+.side pre { font-size: 13px; padding: 10px 12px !important; margin-bottom: 16px; }
+.side p { color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<div class="crumbs"><a href="index.html">← All animations</a></div>
+<div class="scene-head"><h1>What is a derivative?</h1><p>A secant line closing in on the tangent. This is a <a href="https://www.manim.community">Manim Community</a> script, unchanged.</p></div>
+<div class="scene" data-pymations-src="derivative.py" data-pymations-loop></div>
+<div class="cols"><div><pre><code class="language-python"># A real Manim Community script, unchanged. Run it:   pymations run derivative.py
+# Share it:   pymations build derivative.py -o derivative.html
+
+from manim import *
+
+# Explainer: the derivative as the limit of secant slopes, for f(x) = x^2 / 2 at x = 1.
+
+CURVE, POINT, SECANT, TANGENT = BLUE, YELLOW, ORANGE, GREEN
+X0 = 1.0
+
+
+def f(x):
+    return x * x / 2
+
+
+def make_axes():
+    return Axes(x_range=[0, 4, 1], y_range=[0, 8, 2], x_length=6, y_length=5, tips=False).to_edge(LEFT, buff=0.8).shift(DOWN * 0.4)
+
+
+def secant(ax, h, color=SECANT):
+    m = (f(X0 + h) - f(X0)) / h
+    line = Line(ax.c2p(0.2, f(X0) + m * (0.2 - X0)), ax.c2p(3.6, f(X0) + m * (3.6 - X0)), color=color)
+    q = Dot(ax.c2p(X0 + h, f(X0 + h)), color=SECANT)
+    return VGroup(line, q)
+
+
+def h_label(h):
+    return MathTex(&quot;h&quot;, &quot;=&quot;, f&quot;{h:.2f}&quot;).to_corner(UR, buff=0.8)
+
+
+class Curve(Scene):
+    def construct(self):
+        title = Text(&quot;What is a derivative?&quot;, font_size=40).to_edge(UP)
+        self.play(Write(title))
+        ax = make_axes()
+        graph = ax.plot(f, x_range=[0, 3.9], color=CURVE)
+        label = MathTex(r&quot;f(x) = \tfrac{1}{2}x^2&quot;, color=CURVE).next_to(ax.c2p(3.9, f(3.9)), LEFT)
+        self.play(Create(ax), run_time=1.5)
+        self.play(Create(graph), Write(label), run_time=2)
+        p = Dot(ax.c2p(X0, f(X0)), color=POINT)
+        p_label = MathTex(&quot;(1, f(1))&quot;, font_size=32, color=POINT).next_to(p, RIGHT)
+        self.play(GrowFromCenter(p), FadeIn(p_label, shift=RIGHT * 0.3))
+        q = Dot(ax.c2p(3, f(3)), color=SECANT)
+        line = Line(ax.c2p(X0, f(X0)), ax.c2p(3, f(3)), color=SECANT)
+        question = Text(&quot;How steep is the curve here?&quot;, font_size=30).to_edge(RIGHT, buff=0.6)
+        self.play(Write(question))
+        self.play(GrowFromCenter(q), Create(line))
+        self.wait(1.5)
+
+
+class Secants(Scene):
+    def construct(self):
+        ax = make_axes()
+        graph = ax.plot(f, x_range=[0, 3.9], color=CURVE)
+        p = Dot(ax.c2p(X0, f(X0)), color=POINT)
+        self.add(ax, graph, p)
+
+        slope = MathTex(&quot;m&quot;, &quot;=&quot;, r&quot;\frac{f(1+h) - f(1)}{h}&quot;).to_edge(RIGHT, buff=0.8).shift(UP * 0.5)
+        self.play(Write(slope))
+
+        hs = [2.0, 1.0, 0.5, 0.25, 0.1, 0.02]
+        sec = secant(ax, hs[0])
+        lab = h_label(hs[0])
+        self.play(Create(sec[0]), GrowFromCenter(sec[1]), Write(lab))
+        for h in hs[1:]:
+            self.play(Transform(sec, secant(ax, h)), Transform(lab, h_label(h)), run_time=1.2)
+        self.wait()
+
+        limit = MathTex(&quot;f&#x27;(1)&quot;, &quot;=&quot;, r&quot;\lim_{h \to 0}&quot;, r&quot;\frac{f(1+h) - f(1)}{h}&quot;).to_edge(RIGHT, buff=0.5).shift(UP * 0.5)
+        self.play(TransformMatchingTex(slope, limit), run_time=1.5)
+        self.wait(1.5)
+
+
+class Tangent(MovingCameraScene):
+    def construct(self):
+        ax = make_axes()
+        graph = ax.plot(f, x_range=[0, 3.9], color=CURVE)
+        p = Dot(ax.c2p(X0, f(X0)), color=POINT)
+        sec = secant(ax, 0.02)
+        self.add(ax, graph, sec, p)
+
+        tangent = Line(ax.c2p(0.2, f(X0) - 0.8), ax.c2p(3.6, f(X0) + 2.6), color=TANGENT)
+        self.play(ReplacementTransform(sec[0], tangent), FadeOut(sec[1]))
+        self.play(self.camera.frame.animate.scale(0.45).move_to(p), run_time=2)
+        self.wait(0.5)
+        self.play(self.camera.frame.animate.scale(1 / 0.45).move_to(ORIGIN), run_time=2)
+
+        steps = MathTex(r&quot;\frac{\tfrac12(1+h)^2 - \tfrac12}{h}&quot;, &quot;=&quot;, r&quot;1 + \tfrac{h}{2}&quot;).to_edge(RIGHT, buff=0.6).shift(UP * 1.5)
+        result = MathTex(&quot;f&#x27;(1)&quot;, &quot;=&quot;, &quot;1&quot;, color=TANGENT, font_size=60).next_to(steps, DOWN, buff=0.8)
+        self.play(Write(steps))
+        self.play(Write(result))
+        self.play(Circumscribe(result, color=TANGENT))
+        self.wait(1.5)
+</code></pre></div>
+<div class="side"><h2>Run it yourself</h2>
+<pre>pip install pymations
+pymations run derivative.py</pre>
+<h2>Put it on your website</h2>
+<pre>pymations build derivative.py -o site/</pre>
+<p>Python runs in the visitor's browser, so any static host works. <a href="https://github.com/johnwylie70/pymations/blob/main/docs/building-pages.md">How</a> · <a href="https://github.com/johnwylie70/pymations/blob/main/examples/derivative.py">This file on GitHub</a></p>
+<p>Hover over the animation for the scrubber: pause, replay, or drag to any moment.</p>
+</div></div>
+</main>
+<footer>Pymations 0.1.0 · MIT licence · <a href="https://github.com/johnwylie70/pymations">GitHub</a> · <a href="https://pypi.org/project/pymations/">PyPI</a> · <a href="https://www.npmjs.com/package/pymations">npm</a><br>Pymations is an independent project, not affiliated with Manim. It is also built into <a href="https://www.circuitry.dev">Circuitry Studio</a>, where these scripts run in a code editor with a live preview beside the code: <a href="https://www.circuitry.dev/pymations">circuitry.dev/pymations</a>.</footer>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll()</script>
+<script type="module" src="pymations/pymations.js"></script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler&#x27;s identity · Pymations</title>
+<meta name="description" content="e to the i pi, one step at a time. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:title" content="Euler&#x27;s identity · Pymations">
+<meta property="og:description" content="e to the i pi, one step at a time. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:image" content="https://johnwylie70.github.io/pymations/thumbs/pythagoras.jpg">
+<style>
+:root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 40px; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 0.45em; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-top: 8px; }
+.lead { font-size: 18px; color: var(--dim); max-width: 720px; margin: 0 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 40px; }
+.install { font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; display: inline-flex; gap: 12px; align-items: center; }
+.install button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--text);
+       text-decoration: none; background: var(--panel); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #062a33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-decoration: none; color: var(--text);
+        transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card img, .card .noimg { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.card div { padding: 12px 14px 14px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; }
+.card p { margin: 0; color: var(--dim); font-size: 14px; }
+.tag { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+footer { color: var(--dim); font-size: 14px; padding-top: 48px; padding-bottom: 48px; }
+.scene { width: 100%; aspect-ratio: 16 / 9; max-height: 75vh; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.crumbs { padding-top: 24px; font-size: 14px; }
+.scene-head h1 { font-size: clamp(26px, 5vw, 38px); margin: 8px 0 4px; }
+.scene-head p { margin: 0 0 16px; color: var(--dim); }
+.cols { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+@media (min-width: 900px) { .cols { grid-template-columns: 2fr 1fr; } }
+pre { margin: 0; background: var(--panel) !important; border: 1px solid var(--line); border-radius: 12px; padding: 16px !important;
+      overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.cols > div { min-width: 0; }
+pre code.hljs { padding: 0; background: none; }
+.side h2 { font-size: 16px; margin: 0 0 8px; }
+.side pre { font-size: 13px; padding: 10px 12px !important; margin-bottom: 16px; }
+.side p { color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<div class="crumbs"><a href="index.html">← All animations</a></div>
+<div class="scene-head"><h1>Euler&#x27;s identity</h1><p>e to the i pi, one step at a time. This is a <a href="https://www.manim.community">Manim Community</a> script, unchanged.</p></div>
+<div class="scene" data-pymations-src="euler_identity.py" data-pymations-loop></div>
+<div class="cols"><div><pre><code class="language-python"># A real Manim Community script, unchanged. Run it:   pymations run euler_identity.py
+# Share it:   pymations build euler_identity.py -o euler_identity.html
+
+from manim import *
+
+# Explainer: e^{i theta} walks round the unit circle; half a turn lands on -1, giving Euler&#x27;s identity.
+
+CIRCLE_COL, WALK_COL, RE_COL, IM_COL = BLUE, YELLOW, TEAL, ORANGE
+
+
+def plane():
+    p = NumberPlane(x_range=[-3, 3, 1], y_range=[-2, 2, 1], x_length=8.1, y_length=5.4)
+    return p.shift(LEFT * 2.6 + DOWN * 0.5)
+
+
+class Walk(Scene):
+    def construct(self):
+        title = Text(&quot;Euler&#x27;s identity&quot;, font_size=40).to_edge(UP)
+        self.play(Write(title))
+        p = plane()
+        self.play(Create(p), run_time=1.5)
+        circle = Circle(radius=1.35, color=CIRCLE_COL).move_to(p.c2p(0, 0))
+        one = MathTex(&quot;1&quot;, font_size=32).next_to(p.c2p(1, 0), DR, buff=0.1)
+        i = MathTex(&quot;i&quot;, font_size=32).next_to(p.c2p(0, 1), UR, buff=0.1)
+        self.play(Create(circle), Write(one), Write(i))
+
+        formula = MathTex(r&quot;e^{i\theta}&quot;, &quot;=&quot;, r&quot;\cos\theta&quot;, &quot;+&quot;, r&quot;i\sin\theta&quot;).to_edge(RIGHT, buff=0.5).shift(UP * 1.5)
+        formula[2].set_color(RE_COL)
+        formula[4].set_color(IM_COL)
+        self.play(Write(formula))
+
+        dot = Dot(p.c2p(1, 0), color=WALK_COL)
+        arc = Arc(radius=1.35, start_angle=0, angle=PI, arc_center=p.c2p(0, 0), color=WALK_COL, stroke_width=6)
+        self.play(GrowFromCenter(dot))
+        self.play(Create(arc), MoveAlongPath(dot, arc), run_time=4, rate_func=smooth)
+        minus_one = MathTex(&quot;-1&quot;, color=WALK_COL).next_to(p.c2p(-1, 0), DL, buff=0.1)
+        theta = MathTex(r&quot;\theta = \pi&quot;, color=WALK_COL).next_to(p.c2p(-0.75, 0.75), UL, buff=0.1)
+        self.play(Write(minus_one), Write(theta))
+        self.play(Flash(dot, color=WALK_COL))
+        self.wait()
+
+
+class Identity(MovingCameraScene):
+    def construct(self):
+        e1 = MathTex(r&quot;e^{i\pi}&quot;, &quot;=&quot;, r&quot;\cos\pi&quot;, &quot;+&quot;, r&quot;i\sin\pi&quot;, font_size=64)
+        e1[2].set_color(RE_COL)
+        e1[4].set_color(IM_COL)
+        self.play(Write(e1))
+        self.wait()
+        e2 = MathTex(r&quot;e^{i\pi}&quot;, &quot;=&quot;, &quot;-1&quot;, &quot;+&quot;, &quot;0&quot;, font_size=64)
+        e2[2].set_color(RE_COL)
+        e2[4].set_color(IM_COL)
+        self.play(TransformMatchingTex(e1, e2))
+        self.wait()
+        e3 = MathTex(r&quot;e^{i\pi}&quot;, &quot;+&quot;, &quot;1&quot;, &quot;=&quot;, &quot;0&quot;, font_size=80)
+        self.play(TransformMatchingTex(e2, e3), run_time=1.5)
+        box = SurroundingRectangle(e3, color=WALK_COL, buff=0.3)
+        self.play(Create(box))
+        caption = Text(&quot;e, i, pi, 1 and 0 in one line&quot;, font_size=30).next_to(box, DOWN, buff=0.6)
+        self.play(FadeIn(caption, shift=UP * 0.3))
+        self.play(self.camera.frame.animate.scale(0.75), run_time=2)
+        self.wait(1.5)
+</code></pre></div>
+<div class="side"><h2>Run it yourself</h2>
+<pre>pip install pymations
+pymations run euler_identity.py</pre>
+<h2>Put it on your website</h2>
+<pre>pymations build euler_identity.py -o site/</pre>
+<p>Python runs in the visitor's browser, so any static host works. <a href="https://github.com/johnwylie70/pymations/blob/main/docs/building-pages.md">How</a> · <a href="https://github.com/johnwylie70/pymations/blob/main/examples/euler_identity.py">This file on GitHub</a></p>
+<p>Hover over the animation for the scrubber: pause, replay, or drag to any moment.</p>
+</div></div>
+</main>
+<footer>Pymations 0.1.0 · MIT licence · <a href="https://github.com/johnwylie70/pymations">GitHub</a> · <a href="https://pypi.org/project/pymations/">PyPI</a> · <a href="https://www.npmjs.com/package/pymations">npm</a><br>Pymations is an independent project, not affiliated with Manim. It is also built into <a href="https://www.circuitry.dev">Circuitry Studio</a>, where these scripts run in a code editor with a live preview beside the code: <a href="https://www.circuitry.dev/pymations">circuitry.dev/pymations</a>.</footer>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll()</script>
+<script type="module" src="pymations/pymations.js"></script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pythagoras · Pymations</title>
+<meta name="description" content="The theorem shown by rearranging four right triangles in a square. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:title" content="Pythagoras · Pymations">
+<meta property="og:description" content="The theorem shown by rearranging four right triangles in a square. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:image" content="https://johnwylie70.github.io/pymations/thumbs/pythagoras.jpg">
+<style>
+:root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 40px; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 0.45em; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-top: 8px; }
+.lead { font-size: 18px; color: var(--dim); max-width: 720px; margin: 0 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 40px; }
+.install { font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; display: inline-flex; gap: 12px; align-items: center; }
+.install button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--text);
+       text-decoration: none; background: var(--panel); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #062a33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-decoration: none; color: var(--text);
+        transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card img, .card .noimg { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.card div { padding: 12px 14px 14px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; }
+.card p { margin: 0; color: var(--dim); font-size: 14px; }
+.tag { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+footer { color: var(--dim); font-size: 14px; padding-top: 48px; padding-bottom: 48px; }
+.scene { width: 100%; aspect-ratio: 16 / 9; max-height: 75vh; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.crumbs { padding-top: 24px; font-size: 14px; }
+.scene-head h1 { font-size: clamp(26px, 5vw, 38px); margin: 8px 0 4px; }
+.scene-head p { margin: 0 0 16px; color: var(--dim); }
+.cols { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+@media (min-width: 900px) { .cols { grid-template-columns: 2fr 1fr; } }
+pre { margin: 0; background: var(--panel) !important; border: 1px solid var(--line); border-radius: 12px; padding: 16px !important;
+      overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.cols > div { min-width: 0; }
+pre code.hljs { padding: 0; background: none; }
+.side h2 { font-size: 16px; margin: 0 0 8px; }
+.side pre { font-size: 13px; padding: 10px 12px !important; margin-bottom: 16px; }
+.side p { color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<div class="crumbs"><a href="index.html">← All animations</a></div>
+<div class="scene-head"><h1>Pythagoras</h1><p>The theorem shown by rearranging four right triangles in a square. This is a <a href="https://www.manim.community">Manim Community</a> script, unchanged.</p></div>
+<div class="scene" data-pymations-src="pythagoras.py" data-pymations-loop></div>
+<div class="cols"><div><pre><code class="language-python"># A real Manim Community script, unchanged. Run it:   pymations run pythagoras.py
+# Share it:   pymations build pythagoras.py -o pythagoras.html
+
+from manim import *
+
+# Explainer: the Pythagorean theorem by rearranging four right triangles inside a square of side a + b.
+
+A_COL, B_COL, C_COL, TRI_COL = BLUE, GREEN, YELLOW, GREY_B
+a, b = 1.5, 2.5
+s = a + b
+x0, y0 = -4.0, -2.4  # bottom-left corner of the big square
+
+
+def P(x, y):
+    return [x0 + x, y0 + y, 0]
+
+
+def tilted_triangles():
+    # Four copies of the (a, b) right triangle in the corners; the hole in the middle is a square of side c.
+    return VGroup(
+        Polygon(P(0, 0), P(a, 0), P(0, b)),
+        Polygon(P(s, 0), P(s, a), P(a, 0)),
+        Polygon(P(s, s), P(b, s), P(s, a)),
+        Polygon(P(0, s), P(0, b), P(b, s)),
+    ).set_fill(TRI_COL, opacity=0.85).set_stroke(WHITE, width=2)
+
+
+def paired_triangles():
+    # The same four triangles as two a-by-b rectangles; the holes are squares of side a and b.
+    return VGroup(
+        Polygon(P(a, 0), P(s, 0), P(s, a)),
+        Polygon(P(a, a), P(a, 0), P(s, a)),
+        Polygon(P(0, a), P(a, a), P(0, s)),
+        Polygon(P(a, s), P(0, s), P(a, a)),
+    ).set_fill(TRI_COL, opacity=0.85).set_stroke(WHITE, width=2)
+
+
+def frame():
+    return Square(side_length=s, color=WHITE).move_to(P(s / 2, s / 2))
+
+
+class Setup(Scene):
+    def construct(self):
+        title = Text(&quot;Pythagoras by rearrangement&quot;, font_size=40).to_edge(UP)
+        self.play(Write(title))
+
+        tri = Polygon([-2.5, -1.2, 0], [1.5, -1.2, 0], [-2.5, 1.2, 0], color=WHITE, fill_color=TRI_COL, fill_opacity=0.85)
+        la = MathTex(&quot;a&quot;, color=A_COL).next_to(tri, LEFT)
+        lb = MathTex(&quot;b&quot;, color=B_COL).next_to(tri, DOWN)
+        lc = MathTex(&quot;c&quot;, color=C_COL).move_to([-0.2, 0.4, 0])
+        self.play(DrawBorderThenFill(tri))
+        self.play(LaggedStart(Write(la), Write(lb), Write(lc), lag_ratio=0.3))
+        self.wait()
+
+        claim = MathTex(&quot;a^2&quot;, &quot;+&quot;, &quot;b^2&quot;, &quot;=&quot;, &quot;c^2&quot;, font_size=60).next_to(tri, DOWN, buff=0.9)
+        claim[0].set_color(A_COL)
+        claim[2].set_color(B_COL)
+        claim[4].set_color(C_COL)
+        self.play(Write(claim))
+        self.wait()
+        self.play(FadeOut(tri, la, lb, lc, claim, title))
+
+
+class TiltedSquare(Scene):
+    def construct(self):
+        big = frame()
+        tris = tilted_triangles()
+        self.play(Create(big))
+        self.play(LaggedStart(*[DrawBorderThenFill(t) for t in tris], lag_ratio=0.25), run_time=2.5)
+
+        hole = Polygon(P(a, 0), P(s, a), P(b, s), P(0, b), stroke_width=0, fill_color=C_COL, fill_opacity=0.6)
+        c2 = MathTex(&quot;c^2&quot;, color=C_COL, font_size=60).move_to(P(s / 2, s / 2))
+        self.play(FadeIn(hole), Write(c2))
+
+        note = MathTex(r&quot;\text{area} = &quot;, &quot;c^2&quot;, r&quot;+ 4 \cdot \tfrac{1}{2}ab&quot;).to_edge(RIGHT, buff=0.8)
+        note[1].set_color(C_COL)
+        self.play(Write(note))
+        self.wait(2)
+
+
+class Rearranged(Scene):
+    def construct(self):
+        big = frame()
+        tris = tilted_triangles()
+        self.add(big, tris)
+        self.wait(0.5)
+
+        self.play(*[Transform(t, u) for t, u in zip(tris, paired_triangles())], run_time=3)
+
+        sq_a = Square(side_length=a, stroke_width=0, fill_color=A_COL, fill_opacity=0.6).move_to(P(a / 2, a / 2))
+        sq_b = Square(side_length=b, stroke_width=0, fill_color=B_COL, fill_opacity=0.6).move_to(P(a + b / 2, a + b / 2))
+        la = MathTex(&quot;a^2&quot;, font_size=48).move_to(sq_a)
+        lb = MathTex(&quot;b^2&quot;, font_size=60).move_to(sq_b)
+        self.play(FadeIn(sq_a), FadeIn(sq_b), Write(la), Write(lb))
+
+        note = MathTex(r&quot;\text{area} = &quot;, &quot;a^2&quot;, &quot;+&quot;, &quot;b^2&quot;, r&quot;+ 4 \cdot \tfrac{1}{2}ab&quot;).to_edge(RIGHT, buff=0.8)
+        note[1].set_color(A_COL)
+        note[3].set_color(B_COL)
+        self.play(Write(note))
+        self.wait(2)
+
+
+class Conclusion(MovingCameraScene):
+    def construct(self):
+        same = MathTex(&quot;c^2&quot;, r&quot;+ 4 \cdot \tfrac{1}{2}ab&quot;, &quot;=&quot;, &quot;a^2&quot;, &quot;+&quot;, &quot;b^2&quot;, r&quot;+ 4 \cdot \tfrac{1}{2}ab&quot;)
+        same[0].set_color(C_COL)
+        same[3].set_color(A_COL)
+        same[5].set_color(B_COL)
+        self.play(Write(same))
+        self.wait()
+
+        result = MathTex(&quot;c^2&quot;, &quot;=&quot;, &quot;a^2&quot;, &quot;+&quot;, &quot;b^2&quot;, font_size=72)
+        result[0].set_color(C_COL)
+        result[2].set_color(A_COL)
+        result[4].set_color(B_COL)
+        self.play(TransformMatchingTex(same, result), run_time=2)
+        box = SurroundingRectangle(result, color=YELLOW, buff=0.25)
+        self.play(Create(box))
+        self.play(self.camera.frame.animate.scale(0.7).move_to(result), run_time=2)
+        self.wait(2)
+</code></pre></div>
+<div class="side"><h2>Run it yourself</h2>
+<pre>pip install pymations
+pymations run pythagoras.py</pre>
+<h2>Put it on your website</h2>
+<pre>pymations build pythagoras.py -o site/</pre>
+<p>Python runs in the visitor's browser, so any static host works. <a href="https://github.com/johnwylie70/pymations/blob/main/docs/building-pages.md">How</a> · <a href="https://github.com/johnwylie70/pymations/blob/main/examples/pythagoras.py">This file on GitHub</a></p>
+<p>Hover over the animation for the scrubber: pause, replay, or drag to any moment.</p>
+</div></div>
+</main>
+<footer>Pymations 0.1.0 · MIT licence · <a href="https://github.com/johnwylie70/pymations">GitHub</a> · <a href="https://pypi.org/project/pymations/">PyPI</a> · <a href="https://www.npmjs.com/package/pymations">npm</a><br>Pymations is an independent project, not affiliated with Manim. It is also built into <a href="https://www.circuitry.dev">Circuitry Studio</a>, where these scripts run in a code editor with a live preview beside the code: <a href="https://www.circuitry.dev/pymations">circuitry.dev/pymations</a>.</footer>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll()</script>
+<script type="module" src="pymations/pymations.js"></script>
+</body>
+</html>

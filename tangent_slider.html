@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sliding a tangent line · Pymations</title>
+<meta name="description" content="A tangent line slides along a curve, its slope shown as it goes. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:title" content="Sliding a tangent line · Pymations">
+<meta property="og:description" content="A tangent line slides along a curve, its slope shown as it goes. Written in Python with Pymations, playing live in your browser.">
+<meta property="og:image" content="https://johnwylie70.github.io/pymations/thumbs/pythagoras.jpg">
+<style>
+:root { --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #9198a1; --accent: #58c4dd; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+a { color: var(--accent); }
+header, main, footer { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 40px; }
+h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+h1 small { display: block; font-size: 0.45em; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-top: 8px; }
+.lead { font-size: 18px; color: var(--dim); max-width: 720px; margin: 0 0 24px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 40px; }
+.install { font: 15px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 10px 14px; display: inline-flex; gap: 12px; align-items: center; }
+.install button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); color: var(--text);
+       text-decoration: none; background: var(--panel); font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #062a33; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-decoration: none; color: var(--text);
+        transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card img, .card .noimg { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.card div { padding: 12px 14px 14px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; }
+.card p { margin: 0; color: var(--dim); font-size: 14px; }
+.tag { font-size: 12px; color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+footer { color: var(--dim); font-size: 14px; padding-top: 48px; padding-bottom: 48px; }
+.scene { width: 100%; aspect-ratio: 16 / 9; max-height: 75vh; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.crumbs { padding-top: 24px; font-size: 14px; }
+.scene-head h1 { font-size: clamp(26px, 5vw, 38px); margin: 8px 0 4px; }
+.scene-head p { margin: 0 0 16px; color: var(--dim); }
+.cols { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+@media (min-width: 900px) { .cols { grid-template-columns: 2fr 1fr; } }
+pre { margin: 0; background: var(--panel) !important; border: 1px solid var(--line); border-radius: 12px; padding: 16px !important;
+      overflow-x: auto; font-size: 14px; line-height: 1.5; }
+.cols > div { min-width: 0; }
+pre code.hljs { padding: 0; background: none; }
+.side h2 { font-size: 16px; margin: 0 0 8px; }
+.side pre { font-size: 13px; padding: 10px 12px !important; margin-bottom: 16px; }
+.side p { color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<div class="crumbs"><a href="index.html">← All animations</a></div>
+<div class="scene-head"><h1>Sliding a tangent line</h1><p>A tangent line slides along a curve, its slope shown as it goes. This is a <a href="https://www.manim.community">Manim Community</a> script, unchanged.</p></div>
+<div class="scene" data-pymations-src="tangent_slider.py" data-pymations-loop></div>
+<div class="cols"><div><pre><code class="language-python"># A real Manim Community script, unchanged. Run it:   pymations run tangent_slider.py
+# Share it:   pymations build tangent_slider.py -o tangent_slider.html
+
+from manim import *
+
+# Updaters: a tangent line slides along a cubic, driven by a ValueTracker, with a live slope readout.
+
+CURVE, TANGENT, POINT = BLUE, YELLOW, ORANGE
+
+
+def f(x):
+    return 0.2 * x ** 3 - 1.2 * x
+
+
+def df(x):
+    return 0.6 * x ** 2 - 1.2
+
+
+def half_step(x):
+    # Half the tangent&#x27;s x-extent, so the drawn segment has the same length (1.5 data units) at every slope.
+    return 1.5 / (1 + df(x) ** 2) ** 0.5
+
+
+def make_axes():
+    return Axes(x_range=[-3, 3, 1], y_range=[-3, 3, 1], x_length=7, y_length=5.5, tips=False).shift(LEFT * 2.2 + DOWN * 0.3)
+
+
+class Intro(Scene):
+    def construct(self):
+        title = Text(&quot;Sliding a tangent line&quot;, font_size=40).to_edge(UP)
+        self.play(Write(title))
+        ax = make_axes()
+        graph = ax.plot(f, x_range=[-2.9, 2.9], color=CURVE)
+        label = MathTex(r&quot;f(x) = 0.2x^3 - 1.2x&quot;, color=CURVE, font_size=36).to_edge(RIGHT, buff=0.6).shift(UP * 1.5)
+        self.play(Create(ax), run_time=1.5)
+        self.play(Create(graph), Write(label), run_time=2)
+        self.wait()
+
+
+class Slide(Scene):
+    def construct(self):
+        ax = make_axes()
+        graph = ax.plot(f, x_range=[-2.9, 2.9], color=CURVE)
+        label = MathTex(r&quot;f(x) = 0.2x^3 - 1.2x&quot;, color=CURVE, font_size=36).to_edge(RIGHT, buff=0.6).shift(UP * 1.5)
+        self.add(ax, graph, label)
+
+        x = ValueTracker(-2.5)
+        dot = always_redraw(lambda: Dot(ax.c2p(x.get_value(), f(x.get_value())), color=POINT))
+        tangent = always_redraw(
+            lambda: Line(
+                ax.c2p(x.get_value() - half_step(x.get_value()),
+                       f(x.get_value()) - df(x.get_value()) * half_step(x.get_value())),
+                ax.c2p(x.get_value() + half_step(x.get_value()),
+                       f(x.get_value()) + df(x.get_value()) * half_step(x.get_value())),
+                color=TANGENT,
+            )
+        )
+        slope_label = MathTex(&quot;f&#x27;(x) =&quot;, font_size=40).next_to(label, DOWN, buff=0.8).align_to(label, LEFT)
+        slope = DecimalNumber(df(-2.5), num_decimal_places=2, include_sign=True, font_size=40)
+        slope.add_updater(lambda m: m.set_value(df(x.get_value())).next_to(slope_label, RIGHT))
+        x_label = MathTex(&quot;x =&quot;, font_size=40).next_to(slope_label, DOWN, buff=0.4).align_to(slope_label, LEFT)
+        x_num = DecimalNumber(-2.5, num_decimal_places=2, font_size=40)
+        x_num.add_updater(lambda m: m.set_value(x.get_value()).next_to(x_label, RIGHT))
+
+        self.play(GrowFromCenter(dot), Create(tangent), Write(slope_label), Write(x_label), FadeIn(slope), FadeIn(x_num))
+        self.play(x.animate.set_value(2.5), run_time=6)
+        self.wait(0.5)
+        self.play(x.animate.set_value(1.4142), run_time=2)
+        flat = Text(&quot;slope 0: a turning point&quot;, font_size=28, color=TANGENT).next_to(x_label, DOWN, buff=0.6).align_to(x_label, LEFT)
+        self.play(Write(flat))
+        self.play(x.animate.set_value(-1.4142), run_time=3)
+        self.wait()
+</code></pre></div>
+<div class="side"><h2>Run it yourself</h2>
+<pre>pip install pymations
+pymations run tangent_slider.py</pre>
+<h2>Put it on your website</h2>
+<pre>pymations build tangent_slider.py -o site/</pre>
+<p>Python runs in the visitor's browser, so any static host works. <a href="https://github.com/johnwylie70/pymations/blob/main/docs/building-pages.md">How</a> · <a href="https://github.com/johnwylie70/pymations/blob/main/examples/tangent_slider.py">This file on GitHub</a></p>
+<p>Hover over the animation for the scrubber: pause, replay, or drag to any moment.</p>
+</div></div>
+</main>
+<footer>Pymations 0.1.0 · MIT licence · <a href="https://github.com/johnwylie70/pymations">GitHub</a> · <a href="https://pypi.org/project/pymations/">PyPI</a> · <a href="https://www.npmjs.com/package/pymations">npm</a><br>Pymations is an independent project, not affiliated with Manim. It is also built into <a href="https://www.circuitry.dev">Circuitry Studio</a>, where these scripts run in a code editor with a live preview beside the code: <a href="https://www.circuitry.dev/pymations">circuitry.dev/pymations</a>.</footer>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>hljs.highlightAll()</script>
+<script type="module" src="pymations/pymations.js"></script>
+</body>
+</html>
