@@ -166,7 +166,7 @@ function toPt(v: Val): Pt {
 export type Val = number | number[]
 
 /** Time and step for ["t"] / ["dt"]; set by whoever is evaluating. */
-export const evalClock = { t: 0, dt: 0, alpha: 0 }
+export const evalClock = { t: 0, dt: 0, alpha: 0, homotopy: false }
 
 /** The point being mapped by ApplyPointwiseFunction / Homotopy (["p"]). */
 let pointVar: Pt | null = null
@@ -253,6 +253,8 @@ export function evalValue(w: World, e: any): Val {
     case 'var': {
       // t / time: timeline seconds; dt: the step; alpha: animation progress; p (x, y, z): the mapped point.
       const n = String(e[1])
+      // Inside a Homotopy, ["var","t"] is its parameter (0..1), not the timeline.
+      if (n === 't' && evalClock.homotopy) return evalClock.alpha
       if (n === 't' || n === 'time') return evalClock.t
       if (n === 'dt') return evalClock.dt
       if (n === 'alpha') return evalClock.alpha
@@ -260,6 +262,7 @@ export function evalValue(w: World, e: any): Val {
       if (n === 'p') return [p[0], p[1], 0]
       if (n === 'x') return p[0]
       if (n === 'y') return p[1]
+      if (n === 'z') return 0
       return 0
     }
     case 'of': return vec3(pointOf(w, resolveTarget(w, e[1]), Array.isArray(e[2]) ? (E(e[2]) as number[]) : e[2]))
@@ -270,6 +273,10 @@ export function evalValue(w: World, e: any): Val {
       return [r[0], r[1]]
     }
     case 'get': return readValue(w, resolveTarget(w, e[1]), String(e[2]), e.slice(3).map(E)) as Val
+    case 'ppf': {
+      const id = resolveTarget(w, e[1])
+      return readValue(w, id, 'point_from_proportion', [scalar(E(e[2]))]) as Val
+    }
     case 'graph_point': return vec3(graphPoint(w, resolveTarget(w, e[1]), scalar(E(e[2]))))
     case 'p': return pointVar ? [pointVar[0], pointVar[1], 0] : [0, 0, 0]
     case 'alpha': return evalClock.alpha

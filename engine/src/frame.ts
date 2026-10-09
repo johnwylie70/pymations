@@ -9,7 +9,7 @@
 import type { Subpath } from './geometry-types'
 import { lerpColor } from './color'
 import type { Mat } from './math'
-import type { ImageRef, Snap, Style, TextRun } from './scene'
+import type { ImageRef, Shadow, Snap, Style, TextRun } from './scene'
 
 export interface DrawItem {
   paths: Subpath[]
@@ -20,6 +20,8 @@ export interface DrawItem {
   z: number
   text?: TextRun
   image?: ImageRef
+  shadow?: Shadow
+  evenodd?: boolean
 }
 
 export interface Over {

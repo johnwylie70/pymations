@@ -58,7 +58,14 @@ export function textToKatex(src: string): string {
           continue
         }
       }
-      // Any other control sequence (\$, \textbf, \\) is copied as is.
+      // A line break ends the text run; the lines are laid out by buildKatexSource.
+      if (nx === '\\') {
+        flushText()
+        out.push('\\\\')
+        i += 2
+        continue
+      }
+      // Any other control sequence (\$, \textbf) is copied as is.
       text += ch + nx
       i += 2
       continue
@@ -120,9 +127,65 @@ export function canGroupParts(input: TexInput): boolean {
   return parts.length > 1 && parts.every(isSelfContained)
 }
 
-/** KaTeX input for the whole call, each part wrapped so its glyphs can be found again. */
+/**
+ * Splits TeX at its top-level line breaks (\\, with an optional [skip]) and
+ * alignment marks (&), outside braces and environments. Separators come back
+ * as their own entries, so `isSeparator` tells them apart.
+ */
+export function splitTopLevel(src: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let env = 0
+  let start = 0
+  let i = 0
+  const cut = (end: number, sepLen: number) => {
+    out.push(src.slice(start, end), src.slice(end, end + sepLen))
+    start = end + sepLen
+  }
+  while (i < src.length) {
+    const ch = src[i]
+    if (ch === '\\') {
+      const rest = src.slice(i)
+      if (rest.startsWith('\\begin')) env++
+      else if (rest.startsWith('\\end')) env--
+      else if (src[i + 1] === '\\' && depth === 0 && env === 0) {
+        const skip = /^\\\\\s*\[[^\]]*\]/.exec(rest)
+        const len = skip ? skip[0].length : 2
+        cut(i, len)
+        i += len
+        continue
+      }
+      i += 2
+      continue
+    }
+    if (ch === '{') depth++
+    else if (ch === '}') depth--
+    else if (ch === '&' && depth === 0 && env === 0) cut(i, 1)
+    i++
+  }
+  out.push(src.slice(start))
+  return out
+}
+
+export const isSeparator = (s: string) => s === '&' || s.startsWith('\\\\')
+
+/**
+ * KaTeX input for the whole call, each part wrapped so its glyphs can be found
+ * again. Line breaks or & anywhere (MathTex(a, r"\\", b) in Manim) put the
+ * whole thing in the environment Manim uses: align* for MathTex (KaTeX's
+ * aligned) and centred lines for Tex (gathered). Separators stay outside the
+ * wrappers, so a part that is only "\\" has no glyphs, as in Manim.
+ */
 export function buildKatexSource(input: TexInput, wrap: boolean): string {
   const parts = partsOf(input).map((p) => (input.mode === 'text' ? textToKatex(p) : p))
-  if (!wrap) return parts.join(' ')
-  return parts.map((p, i) => `\\htmlClass{cir-p${i}}{${p}}`).join(' ')
+  const pieces = parts.map(splitTopLevel)
+  const lines = pieces.some((ps) => ps.some(isSeparator))
+  const body = wrap
+    ? pieces
+        .map((ps, i) => ps.map((s) => (isSeparator(s) || !s.trim() ? s : `\\htmlClass{cir-p${i}}{${s}}`)).join(''))
+        .join(' ')
+    : parts.join(' ')
+  if (!lines) return body
+  const envName = input.mode === 'text' ? 'gathered' : 'aligned'
+  return `\\begin{${envName}}${body}\\end{${envName}}`
 }

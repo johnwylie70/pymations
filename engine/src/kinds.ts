@@ -160,18 +160,20 @@ export function formatNumber(v: number, places: number, includeSign = false): st
 
 /** Builds text now if the font is ready, else after it loads. */
 export function makeText(env: MakeEnv, id: number, kind: string, props: Kw, str: string): void | Promise<void> {
-  const key = fontKey(props.weight, props.slant)
+  const key = fontKey(props.weight, props.slant, props.font)
   if (env.text.font(key) === undefined) return env.text.load(key).then(() => makeText(env, id, kind, props, str))
   const em = emFor(num(props.font_size, 48))
   const style = styleFrom(props, { sw: 0, fo: 1 })
-  const outline = env.text.outline(str, em, key, num(props.line_spacing, 1.2))
+  // letter_spacing is in em (0.05 = 5% of the font size), added after each character.
+  const outline = env.text.outline(str, em, key, num(props.line_spacing, 1.2), num(props.letter_spacing, 0) * em)
   if (!outline) {
     // No outlines: a fillText run of about the right size.
     const lines = str.split('\n')
     const w = Math.max(...lines.map(l => l.length)) * em * 0.55
     const h = lines.length * em * 0.75
+    const [wt, sl] = key.replace(/^[a-z]+:/, '').split('|')
     put(env, id, kind, props, style, [], {
-      text: { str, em, weight: key.split('|')[0], slant: key.split('|')[1], w, h },
+      text: { str, em, weight: key.startsWith('url:') ? 'normal' : wt, slant: key.startsWith('url:') ? 'normal' : sl, w, h, family: key },
       data: { text: str },
     })
     return
@@ -443,7 +445,7 @@ export function makeAxes(env: MakeEnv, id: number, kind: string, props: Kw): voi
   env.w.update(xid, { data: { ...env.w.get(xid).data, axes: { ...map, sy: 0, oy: L(0, y0)[1], y0: 0 } } })
   env.w.update(yid, { data: { ...env.w.get(yid).data, axes: { x0: yr[0], y0: 0, sx: 0, sy: map.sy, ox: L(x0, 0)[0], oy: map.oy } } })
   children.push(xid, yid)
-  put(env, id, kind, props, { sc: WHITE, fc: WHITE, sw: 2, so: 1, fo: 0 }, [], { children, data: { axes: map } })
+  put(env, id, kind, props, { sc: WHITE, fc: WHITE, sw: 2, so: 1, fo: 0 }, [], { children, data: { axes: map, props } })
 }
 
 function makeNumberLine(env: MakeEnv, id: number, props: Kw): void | Promise<void> {
@@ -489,7 +491,10 @@ function makeGraph(env: MakeEnv, id: number, props: Kw) {
   if (Array.isArray(props.segments)) for (const s of props.segments) addRun(s as unknown[])
   else addRun(props.points || [])
   const smooth = props.use_smoothing !== false && props.smooth !== false
-  const paths = runs.filter(r => r.length >= 2).map(r => (smooth ? smoothSub(r, false) : polySub(r, false)))
+  const closed = !!props.closed
+  const paths = runs.filter(r => r.length >= 2).map(r => (smooth ? smoothSub(r, closed) : polySub(r, closed)))
+  // A list of colours (get_area / Riemann rectangles' gradient): one object takes the first.
+  if (Array.isArray(props.color) && typeof props.color[0] === 'string') props = { ...props, color: props.color[0] }
   // Same matrix as the axes, so the curve sits on them wherever they are.
   put(env, id, 'graph', props, styleFrom(props, { color: YELLOW }), paths, { ...(m ? { m } : {}), data: { ...(map ? { axes: map } : {}), samples: raw } })
 }
@@ -505,6 +510,83 @@ export function setSharedText(t: TextOutliner) {
   sharedText = t
 }
 
+/**
+ * DecimalNumber is TeX in Manim (Computer Modern digits). With the TeX
+ * outliner available, each character is outlined ONCE per font size from a
+ * few probe strings ("0123456789", "0.0", "-0", "+0", "0{,}0") and kept with
+ * its pen origin, baseline and advance — the same shape of cache as the text
+ * font's, so a number changing every frame places cached glyphs. Without TeX
+ * the text font is used.
+ */
+interface CharG { paths: Subpath[]; advance: number; box: [number, number, number, number] | null }
+const texChars = new Map<number, Map<string, CharG> | Promise<Map<string, CharG>>>()
+
+function boxOfPaths(paths: Subpath[]): [number, number, number, number] {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const sp of paths) for (const p of sp.points) {
+    if (p[0] < x0) x0 = p[0]
+    if (p[0] > x1) x1 = p[0]
+    if (p[1] < y0) y0 = p[1]
+    if (p[1] > y1) y1 = p[1]
+  }
+  return [x0, y0, x1, y1]
+}
+
+function shifted(paths: Subpath[], dx: number, dy: number): Subpath[] {
+  return paths.map(sp => ({ closed: sp.closed, points: sp.points.map(p => [p[0] - dx, p[1] - dy] as Pt) }))
+}
+
+async function loadTexChars(tex: TexFn, fontSize: number): Promise<Map<string, CharG>> {
+  const get = (src: string) => tex({ tex: src, mode: 'math', parts: [src], fontSize }).then(o => o.parts.flat())
+  const [digits, dot, minus, plus, comma] = await Promise.all([get('0123456789'), get('0.0'), get('-0'), get('+0'), get('0{,}0')])
+  const out = new Map<string, CharG>()
+  if (digits.length !== 10) throw new Error('unexpected digit layout')
+  const boxes = digits.map(boxOfPaths)
+  const cx = (b: number[]) => (b[0] + b[2]) / 2
+  const adv = (cx(boxes[9]) - cx(boxes[0])) / 9
+  const base = boxes[0][1]
+  digits.forEach((g, i) => {
+    const pen = cx(boxes[i]) - adv / 2
+    const paths = shifted(g, pen, base)
+    out.set(String(i), { paths, advance: adv, box: boxOfPaths(paths) })
+  })
+  // A character between digits (".", ","): from where the first 0 ends to where the next 0 starts.
+  const between = (gl: Subpath[][], ch: string) => {
+    if (gl.length !== 3) return
+    const b0 = boxOfPaths(gl[0]), b2 = boxOfPaths(gl[2])
+    const pen = cx(b0) + adv / 2, next = cx(b2) - adv / 2
+    const paths = shifted(gl[1], pen, b0[1])
+    out.set(ch, { paths, advance: next - pen, box: boxOfPaths(paths) })
+  }
+  between(dot, '.')
+  between(comma, ',')
+  // A sign before a digit: it starts at its own ink and ends where the 0 starts.
+  const before = (gl: Subpath[][], ch: string) => {
+    if (gl.length !== 2) return
+    const bs = boxOfPaths(gl[0]), b0 = boxOfPaths(gl[1])
+    const pen = bs[0], next = cx(b0) - adv / 2
+    const paths = shifted(gl[0], pen, b0[1])
+    out.set(ch, { paths, advance: next - pen, box: boxOfPaths(paths) })
+  }
+  before(minus, '-')
+  before(minus, '\u2212')
+  before(plus, '+')
+  return out
+}
+
+/** The TeX characters for a font size, if already loaded (else start loading them). */
+function texCharsFor(env: MakeEnv | null, fontSize: number): Map<string, CharG> | Promise<Map<string, CharG>> | null {
+  const hit = texChars.get(fontSize)
+  if (hit) return hit
+  if (!env || !env.tex) return null
+  const p = loadTexChars(env.tex, fontSize).then(
+    m => { texChars.set(fontSize, m); return m },
+    () => { texChars.delete(fontSize); return null },
+  )
+  texChars.set(fontSize, p)
+  return p
+}
+
 interface NumberData {
   value: number
   places: number
@@ -517,54 +599,137 @@ interface NumberData {
   /** Local y of the ink centre of "0", so digits sit on one baseline whatever they are. */
   mid: number
   text: string
+  /** 'tex' (Computer Modern digits, as Manim) or 'text' (the text font). */
+  src: 'tex' | 'text'
+  fontSize: number
+  commas: boolean
+  ellipsis: boolean
 }
 
 /**
- * Lay a number's characters out as glyph objects under `id`: each glyph's
- * paths are the cached character outline, placed by its matrix — so changing
- * the value places cached glyphs and never outlines again.
+ * The pieces a number is drawn from, in order: its characters (with commas),
+ * then "\ldots" (show_ellipsis) and the unit, each of those one piece.
+ */
+function numberTokens(d: NumberData, value: number): string[] {
+  let s = formatNumber(value, d.places, d.sign)
+  if (d.commas) {
+    const [i, f] = s.split('.')
+    s = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f != null ? '.' + f : '')
+  }
+  const out = Array.from(s)
+  if (d.ellipsis) out.push('\\ldots')
+  if (d.unit) out.push(d.unit)
+  return out
+}
+
+function numberString(d: NumberData, value: number): string {
+  return numberTokens(d, value).map(t => (t === '\\ldots' ? '…' : t)).join('')
+}
+
+/** One piece's cached glyph, from TeX or the text font. */
+function numberGlyph(d: NumberData, ch: string): CharG | null {
+  if (d.src === 'tex') {
+    const m = texChars.get(d.fontSize)
+    if (m && !(m instanceof Promise)) {
+      const g = m.get(ch) || (ch === '−' ? m.get('-') : null)
+      if (g) return g
+    }
+  }
+  if (!sharedText) return null
+  if (ch.length === 1 || Array.from(ch).length === 1) return sharedText.glyph(ch, d.em, d.key)
+  // A multi-character piece in the text font: its characters joined into one glyph.
+  const parts: Subpath[] = []
+  let x = 0
+  for (const c of Array.from(ch === '\\ldots' ? '…' : ch.replace(/\\text\{([^}]*)\}/g, '$1'))) {
+    const g = sharedText.glyph(c, d.em, d.key)
+    if (!g) return null
+    parts.push(...g.paths.map(sp => ({ closed: sp.closed, points: sp.points.map(p => [p[0] + x, p[1]] as Pt) })))
+    x += g.advance
+  }
+  return { paths: parts, advance: x, box: parts.length ? boxOfPaths(parts) : null }
+}
+
+/** The gap Manim leaves between a number's pieces (they are arranged ink to ink). */
+const numberGap = (d: NumberData) => 0.048 * (d.fontSize / 48)
+
+/**
+ * Lay a number out as glyph objects under `id`. Each piece's paths are the
+ * cached outline, placed by its matrix (so a new value never outlines again),
+ * ink to ink with Manim's gap, on one baseline.
  */
 function layoutNumber(w: World, id: number, d: NumberData, style: Style, parentM: Mat): { children: number[]; text?: TextRun } {
-  const str = formatNumber(d.value, d.places, d.sign) + d.unit
-  const t = sharedText
-  const glyphs = t ? Array.from(str).map(ch => t.glyph(ch, d.em, d.key)) : []
-  if (!t || glyphs.some(g => !g)) {
+  const toks = numberTokens(d, d.value)
+  const glyphs = toks.map(ch => numberGlyph(d, ch))
+  if (glyphs.some(g => !g)) {
     // No font: one fillText run (left edge kept by shifting its centre).
+    const str = numberString(d, d.value)
     const wdt = str.length * d.em * 0.55
     return { children: [], text: { str, em: d.em, weight: d.key.split('|')[0], slant: d.key.split('|')[1], w: wdt, h: d.em * 0.75 } }
   }
-  let x = d.left
+  let cursor = d.left
+  const gap = numberGap(d)
   const children: number[] = []
-  Array.from(str).forEach((ch, i) => {
+  toks.forEach((ch, i) => {
     const g = glyphs[i]
-    if (g.paths.length) {
-      const gid = w.newId()
-      w.set(newMob(gid, 'glyph', style, g.paths, { m: mul(parentM, translate(x, -d.mid)), data: { char: ch } }))
-      children.push(gid)
-    }
-    x += g.advance
+    if (!g.paths.length || !g.box) { cursor += g.advance; return }
+    const x = cursor - g.box[0]
+    const gid = w.newId()
+    w.set(newMob(gid, 'glyph', style, g.paths, { m: mul(parentM, translate(x, -d.mid)), data: { char: ch } }))
+    children.push(gid)
+    cursor += g.box[2] - g.box[0] + gap
   })
   return { children }
+}
+
+/** Load the TeX pieces a number needs beyond the digits (its unit, the ellipsis). */
+function texTokenFor(env: MakeEnv, fontSize: number, token: string): void | Promise<void> {
+  const m = texChars.get(fontSize)
+  if (!m || m instanceof Promise || m.has(token) || !env.tex) return
+  return env.tex({ tex: token, mode: 'math', parts: [token], fontSize }).then(
+    o => {
+      const paths = o.parts.flat().flat()
+      if (!paths.length) return
+      const b = boxOfPaths(paths)
+      // Sit it on the digits' baseline (its ink bottom there, as letters and dots do).
+      const shiftedPaths = shifted(paths, b[0], b[1])
+      m.set(token, { paths: shiftedPaths, advance: b[2] - b[0], box: boxOfPaths(shiftedPaths) })
+    },
+    () => undefined,
+  )
 }
 
 function makeNumber(env: MakeEnv, id: number, kind: string, props: Kw): void | Promise<void> {
   const key = fontKey(props.weight, props.slant)
   if (env.text.font(key) === undefined) return env.text.load(key).then(() => makeNumber(env, id, kind, props))
+  const fontSize = num(props.font_size, 48)
+  const tc = texCharsFor(env, fontSize)
+  if (tc instanceof Promise) return tc.then(() => makeNumber(env, id, kind, props))
+  const unit = props.unit != null && props.unit !== '' ? String(props.unit) : ''
+  for (const tok of [unit, props.show_ellipsis ? '\\ldots' : '']) {
+    if (!tok) continue
+    const p = texTokenFor(env, fontSize, tok)
+    if (p) return p.then(() => makeNumber(env, id, kind, props))
+  }
   const places = props.num_decimal_places != null ? num(props.num_decimal_places, 2) : kind === 'integer' ? 0 : 2
-  const em = emFor(num(props.font_size, 48))
+  const em = emFor(fontSize)
   const d: NumberData = {
     value: num(props.number ?? props.value, 0), places, sign: !!props.include_sign,
-    unit: props.unit != null ? String(props.unit).replace(/^\^\\circ$/, '°').replace(/\\circ/g, '°') : '',
-    em, key, left: 0, mid: 0, text: '',
+    unit: tc ? unit : unit.replace(/^\^\\circ$/, '°').replace(/\\circ/g, '°').replace(/\\text\{([^}]*)\}/g, '$1'),
+    em, key, left: 0, mid: 0, text: '', src: tc ? 'tex' : 'text', fontSize,
+    // Manim groups thousands with commas unless told not to.
+    commas: props.group_with_commas !== false, ellipsis: !!props.show_ellipsis,
   }
-  const zero = env.text.glyph('0', em, key)
+  const zero = numberGlyph(d, '0')
   d.mid = zero && zero.box ? (zero.box[1] + zero.box[3]) / 2 : em * 0.35
-  // Centre the first layout on the origin, then keep its left edge from now on.
-  const probe = formatNumber(d.value, d.places, d.sign) + d.unit
-  let width = 0
-  for (const ch of Array.from(probe)) width += env.text.glyph(ch, em, key)?.advance ?? em * 0.55
-  d.left = -width / 2
-  d.text = probe
+  // Centre the first layout on the origin, then keep its left edge from now on (Manim's edge_to_fix).
+  let total = 0, count = 0
+  for (const ch of numberTokens(d, d.value)) {
+    const g = numberGlyph(d, ch)
+    if (g && g.box) { total += g.box[2] - g.box[0]; count++ }
+  }
+  total += Math.max(0, count - 1) * numberGap(d)
+  d.left = -total / 2
+  d.text = numberString(d, d.value)
   const style = styleFrom(props, { sw: 0, fo: 1 })
   const { children, text } = layoutNumber(env.w, id, d, style, IDENTITY)
   put(env, id, kind, props, style, [], { children, text, data: { ...d, number: true } })
@@ -583,7 +748,7 @@ export function setNumberValue(w: World, id: number, value: number) {
   const next = { ...d, value }
   const style = mob.children.length ? w.get(mob.children[0]).style : mob.style
   const { children, text } = layoutNumber(w, id, next, style, mob.m)
-  next.text = formatNumber(value, d.places, d.sign) + d.unit
+  next.text = numberString(d, value)
   w.set({ ...mob, children, text, data: next })
 }
 
@@ -796,8 +961,10 @@ export const BUILDERS: Record<string, Builder> = {
   /** PycturesCanvas: a canvas Python draws on, placed in a width × height box. */
   pyctures_canvas: (env, id, p, kind) => {
     const W = num(p.width, 4), H = num(p.height, 3)
-    const pxW = Math.max(1, Math.round(num(p.px_width, W * 100))), pxH = Math.max(1, Math.round(num(p.px_height, H * 100)))
-    const src = canvasFactory ? canvasFactory(pxW, pxH) : null
+    const pxW = Math.max(1, Math.round(num(p.px_width ?? p.pixel_width, W * 100)))
+    const pxH = Math.max(1, Math.round(num(p.px_height ?? p.pixel_height, H * 100)))
+    // Python may hand over its own canvas element; otherwise the engine makes one (canvas_for(id)).
+    const src = p.canvas && typeof p.canvas === 'object' ? (p.canvas as CanvasImageSource) : canvasFactory ? canvasFactory(pxW, pxH) : null
     const at = p.point != null ? pt(env, p.point, [0, 0]) : null
     put(env, id, kind, p, styleFrom({ fill_opacity: 1, ...p }, { sw: 0 }), [], {
       image: { src, w: W, h: H }, ...(at ? { m: translate(at[0], at[1]) } : {}), data: { pxW, pxH },
@@ -831,7 +998,7 @@ export const BUILDERS: Record<string, Builder> = {
 const ALIASES: Record<string, string> = {
   vgroup: 'group', v_group: 'group', mobject: 'group', v_mobject: 'vmobject', math_tex: 'mathtex',
   integer: 'decimal_number', regular_polygram: 'regular_polygon', surrounding_rect: 'surrounding_rectangle',
-  round_rectangle: 'rounded_rectangle', curved_arrow: 'arrow', plot: 'graph', parametric_function: 'graph',
+  round_rectangle: 'rounded_rectangle', plot: 'graph', parametric_function: 'graph',
 }
 
 /** "MathTex", "VGroup", "number_plane" → this table's name. */

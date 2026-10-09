@@ -9,11 +9,12 @@
 import type { Pt, Subpath } from './geometry-types'
 import { apply, mul, rotateAbout, scaleAbout, translate, type Mat } from './math'
 import {
-  arcSub, circleSub, lineSub, partialPaths, polySub, roundedRectSub, totalLength, transformPaths, TAU, type Box,
+  arcSub, circleSub, lineSub, partialPaths, pointAt, polySub, roundedRectSub, totalLength, transformPaths, TAU, type Box,
 } from './geometry'
 import { boxCenter, familyBox, leaves, newMob, type Style, type World } from './scene'
 import { axisToLocal, endPoint, num, resolvePoint, resolveTarget, type AxisMap, type Kw } from './args'
 import { NAMED, normColor, WHITE } from './color'
+import { fontKey } from './text'
 import {
   emFor, formatNumber, lineEnds, makeArrow, makeAxes, makeTex, makeText, pt, put, shiftFamily, styleFrom, targetsBox,
   tipPaths, type Builder, type MakeEnv,
@@ -67,7 +68,7 @@ function makeAngle(env: MakeEnv, id: number, kind: string, props: Kw, elbow: boo
   if (props.other_angle) sweep -= TAU
   let paths: Subpath[]
   if (elbow || props.elbow) {
-    const L = num(props.length, 0.3)
+    const L = num(props.length, 0.4)
     paths = [polySub([[p[0] + u[0] * L, p[1] + u[1] * L], [p[0] + (u[0] + v[0]) * L, p[1] + (u[1] + v[1]) * L], [p[0] + v[0] * L, p[1] + v[1] * L]], false)]
   } else {
     const r = num(props.radius, 0.4)
@@ -76,25 +77,33 @@ function makeAngle(env: MakeEnv, id: number, kind: string, props: Kw, elbow: boo
   put(env, id, kind, props, styleFrom(props), paths, { data: { value: Math.abs(sweep), vertex: p } })
 }
 
+/**
+ * Sector / AnnularSector, starting where Manim's do: on the inner arc at the
+ * start angle (the centre for a Sector), inner arc forward, out to the outer
+ * arc, outer arc back, and closed.
+ */
 function makeSector(env: MakeEnv, id: number, kind: string, props: Kw, inner: number, outer: number) {
   const c = pt(env, props.arc_center, [0, 0])
   const a0 = num(props.start_angle, 0), ang = num(props.angle, TAU / 4)
-  const out = arcSub(c, outer, outer, a0, ang, false, 8).points
+  const seg = (pts: Pt[], b: Pt) => {
+    const a = pts[pts.length - 1]
+    pts.push([a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3], [a[0] + (2 * (b[0] - a[0])) / 3, a[1] + (2 * (b[1] - a[1])) / 3], [b[0], b[1]])
+  }
+  const outBack = arcSub(c, outer, outer, a0 + ang, -ang, false, 8).points
   let pts: Pt[]
   if (inner > 1e-9) {
-    const inn = arcSub(c, inner, inner, a0 + ang, -ang, false, 8).points
-    pts = [...out]
-    const last = out[out.length - 1]
-    pts.push([last[0] + (inn[0][0] - last[0]) / 3, last[1] + (inn[0][1] - last[1]) / 3], [last[0] + (2 * (inn[0][0] - last[0])) / 3, last[1] + (2 * (inn[0][1] - last[1])) / 3], inn[0])
-    pts.push(...inn.slice(1))
+    pts = [...arcSub(c, inner, inner, a0, ang, false, 8).points]
+    seg(pts, outBack[0])
+    pts.push(...outBack.slice(1))
   } else {
-    pts = [...out]
-    const last = out[out.length - 1]
-    pts.push([last[0] + (c[0] - last[0]) / 3, last[1] + (c[1] - last[1]) / 3], [last[0] + (2 * (c[0] - last[0])) / 3, last[1] + (2 * (c[1] - last[1])) / 3], [c[0], c[1]])
+    pts = [[c[0], c[1]]]
+    seg(pts, [c[0] + outer * Math.cos(a0), c[1] + outer * Math.sin(a0)])
+    pts.push(...arcSub(c, outer, outer, a0, ang, false, 8).points.slice(1))
   }
-  const end = pts[pts.length - 1], first = pts[0]
-  pts.push([end[0] + (first[0] - end[0]) / 3, end[1] + (first[1] - end[1]) / 3], [end[0] + (2 * (first[0] - end[0])) / 3, end[1] + (2 * (first[1] - end[1])) / 3], [first[0], first[1]])
-  put(env, id, kind, props, styleFrom(props, { sw: 0, fo: 1 }), [{ points: pts, closed: true }])
+  seg(pts, pts[0])
+  put(env, id, kind, props, styleFrom(props, { sw: 0, fo: 1 }), [{ points: pts, closed: true }], {
+    data: { start: pts[0], end: pts[0] },
+  })
 }
 
 /** An arc from a to b turning through `angle` (positive: counter-clockwise). */
@@ -111,7 +120,7 @@ function arcBetween(a: Pt, b: Pt, angle: number): Subpath {
 }
 
 function makeCurvedArrow(env: MakeEnv, id: number, kind: string, props: Kw, two: boolean) {
-  const [a, b] = lineEnds(env, props.start, props.end)
+  const [a, b] = lineEnds(env, props.start ?? props.start_point, props.end ?? props.end_point)
   const arc = arcBetween(a, b, num(props.angle, TAU / 4))
   const L = totalLength([arc])
   const tip = Math.min(num(props.tip_length, 0.35), 0.25 * L)
@@ -149,7 +158,7 @@ function makeTexts(env: MakeEnv, items: Array<{ id: number; kind: 'text' | 'math
 function makeParagraph(env: MakeEnv, id: number, kind: string, props: Kw, lines: string[], bullets = false) {
   const em = emFor(num(props.font_size, 48))
   const ids = lines.map(() => env.w.newId())
-  const rs = makeTexts(env, lines.map((l, i) => ({ id: ids[i], kind: 'text', str: bullets ? `•  ${l}` : l, props: { font_size: props.font_size, color: props.color, weight: props.weight, slant: props.slant } })))
+  const rs = makeTexts(env, lines.map((l, i) => ({ id: ids[i], kind: 'text', str: bullets ? `•  ${l}` : l, props: { font_size: props.font_size, color: props.color, weight: props.weight, slant: props.slant, font: props.font, letter_spacing: props.letter_spacing } })))
   return all(rs, () => {
     const align = String(props.alignment || (bullets ? 'left' : 'left')).toLowerCase()
     const pitch = bullets ? em * 1.2 + num(props.buff, 0.5) * 0.5 : em * 1.25 * num(props.line_spacing, 1)
@@ -166,7 +175,8 @@ function makeParagraph(env: MakeEnv, id: number, kind: string, props: Kw, lines:
 /** MarkupText: <b>, <i>, <span foreground|color="…">, <u> (ignored); glyphs from the character cache. */
 function makeMarkup(env: MakeEnv, id: number, kind: string, props: Kw): void | Promise<void> {
   const src = String(props.text ?? '')
-  const keys = ['normal|normal', 'bold|normal', 'normal|italic', 'bold|italic']
+  const fk = (b: string, i: string) => fontKey(b, i, props.font)
+  const keys = Array.from(new Set([fk('normal', 'normal'), fk('bold', 'normal'), fk('normal', 'italic'), fk('bold', 'italic')]))
   const missing = keys.filter(k => env.text.font(k) === undefined)
   if (missing.length) return Promise.all(missing.map(k => env.text.load(k))).then(() => makeMarkup(env, id, kind, props))
   const base = styleFrom(props, { sw: 0, fo: 1 })
@@ -195,7 +205,7 @@ function makeMarkup(env: MakeEnv, id: number, kind: string, props: Kw): void | P
   let fallback = ''
   for (const r of runs) {
     if (r.ch === '\n') { x = 0; y -= em * 1.25; continue }
-    const key = `${r.bold ? 'bold' : 'normal'}|${r.italic ? 'italic' : 'normal'}`
+    const key = fk(r.bold ? 'bold' : 'normal', r.italic ? 'italic' : 'normal')
     const g = env.text.glyph(r.ch, em, key)
     fallback += r.ch
     if (!g) continue
@@ -205,7 +215,7 @@ function makeMarkup(env: MakeEnv, id: number, kind: string, props: Kw): void | P
       env.w.set(newMob(gid, 'glyph', st, g.paths, { m: translate(x, y), data: { char: r.ch } }))
       kids.push(gid)
     }
-    x += g.advance
+    x += g.advance + num(props.letter_spacing, 0) * em
   }
   if (!kids.length && fallback.trim()) return makeText(env, id, kind, props, fallback)
   group(env, id, kind, props, kids, { data: { text: fallback } })
@@ -253,24 +263,26 @@ function makeTable(env: MakeEnv, id: number, kind: string, props: Kw, cellKind: 
     const lineStyle: Style = { ...styleFrom(props.line_config || {}), sw: num(props.line_config?.stroke_width, 2) }
     const outer = !!props.include_outer_lines
     const hl: Subpath[] = [], vl: Subpath[] = []
-    const x0 = -W / 2 - (outer ? hb / 2 : 0), x1 = W / 2 + (outer ? hb / 2 : 0)
-    const y0 = H / 2 + (outer ? vb / 2 : 0), y1 = -H / 2 - (outer ? vb / 2 : 0)
+    // Lines run the table's full width/height, half a buff past the outer cells (Manim's).
+    const x0 = -W / 2 - hb / 2, x1 = W / 2 + hb / 2
+    const y0 = H / 2 + vb / 2, y1 = -H / 2 - vb / 2
     for (let r = 0; r < nr - 1; r++) { const y = ys[r] - rowH[r] / 2 - vb / 2 + H / 2; hl.push(lineSub([x0, y], [x1, y])) }
     for (let c = 0; c < nc - 1; c++) { const x = xs[c] + colW[c] / 2 + hb / 2 - W / 2; vl.push(lineSub([x, y0], [x, y1])) }
     if (outer) {
       hl.unshift(lineSub([x0, y0], [x1, y0])); hl.push(lineSub([x0, y1], [x1, y1]))
       vl.unshift(lineSub([x0, y0], [x0, y1])); vl.push(lineSub([x1, y0], [x1, y1]))
     }
-    const eid = w.newId(), lid = w.newId(), hid = w.newId(), vid = w.newId()
+    const eid = w.newId(), hid = w.newId(), vid = w.newId()
     w.set(newMob(eid, 'group', lineStyle, [], { children: cellIds }))
     const mk = (gid: number, subs: Subpath[]) => {
       const kids = subs.map(s => { const k = w.newId(); w.set(newMob(k, 'line', lineStyle, [s])); return k })
       w.set(newMob(gid, 'group', lineStyle, [], { children: kids }))
     }
-    mk(hid, hl)
-    mk(vid, vl)
-    w.set(newMob(lid, 'group', lineStyle, [], { children: [hid, vid] }))
-    group(env, id, kind, props, [eid, lid], { data: { rows: nr, cols: nc } })
+    const inner = props.include_inner_lines !== false
+    mk(hid, inner ? hl : outer ? [hl[0], hl[hl.length - 1]] : [])
+    mk(vid, inner ? vl : outer ? [vl[0], vl[vl.length - 1]] : [])
+    // [0] entries row-major (labels included), [1] horizontal lines, [2] vertical lines.
+    group(env, id, kind, props, [eid, hid, vid], { data: { rows: nr, cols: nc } })
   })
 }
 
@@ -304,14 +316,14 @@ function makeMatrix(env: MakeEnv, id: number, kind: string, props: Kw, cellKind:
     const eid = w.newId()
     w.set(newMob(eid, 'group', styleFrom(props), [], { children: ids }))
     const b = familyBox(w, eid)
-    const h = b[3] - b[1] + 0.3
+    const h = b[3] - b[1] + 2 * num(props.bracket_v_buff, 0.25)
     const bb = num(props.bracket_h_buff, 0.25)
     const st = styleFrom({ ...props, fill_opacity: 1, stroke_width: 0 }, { sw: 0, fo: 1 })
-    const l = w.newId(), r = w.newId(), g = w.newId()
+    const l = w.newId(), r = w.newId()
     w.set(newMob(l, 'bracket', st, bracketPath(h, false), { m: translate(b[0] - bb, (b[1] + b[3]) / 2) }))
     w.set(newMob(r, 'bracket', st, bracketPath(h, true), { m: translate(b[2] + bb, (b[1] + b[3]) / 2) }))
-    w.set(newMob(g, 'group', st, [], { children: [l, r] }))
-    group(env, id, kind, props, [eid, g], { data: { rows: nr, cols: nc } })
+    // [0] entries row-major, [1] left bracket, [2] right bracket.
+    group(env, id, kind, props, [eid, l, r], { data: { rows: nr, cols: nc } })
     moveCenterTo(w, id, 0, 0)
   })
 }
@@ -344,51 +356,62 @@ function tokenizeCode(line: string, lang: string): Array<{ s: string; c: string 
 }
 
 function makeCode(env: MakeEnv, id: number, kind: string, props: Kw) {
-  const code = String(props.code_string ?? props.code ?? '').replace(/\t/g, '    ').replace(/\s+$/, '')
+  const tab = ' '.repeat(Math.max(1, Math.round(num(props.tab_width, 4))))
+  const code = String(props.code_string ?? props.code ?? '').replace(/\t/g, tab).replace(/\s+$/, '')
   const lang = String(props.language || 'python').toLowerCase()
   const em = emFor(num(props.font_size, 24))
   const cw = em * 0.6, lh = em * 1.45
   const lines = code.split('\n')
   const numbers = props.add_line_numbers !== false
-  const gutter = numbers ? (String(lines.length).length + 2) * cw : 0
-  const kids: number[] = []
+  const from = Math.round(num(props.line_numbers_from, 1))
+  const gutter = numbers ? (String(lines.length + from - 1).length + 2) * cw : 0
   const w = env.w
+  const token = (str: string, color: string, x: number, y: number) => {
+    const tid = w.newId()
+    const wd = str.length * cw
+    w.set(newMob(tid, 'code_token', { sc: color, fc: color, sw: 0, so: 1, fo: 1 }, [], {
+      text: { str, em, weight: 'normal', slant: 'normal', w: wd, h: em, family: 'mono', left: true },
+      m: translate(x + wd / 2, y), data: { text: str },
+    }))
+    return tid
+  }
+  const numIds: number[] = [], lineIds: number[] = []
   lines.forEach((line, i) => {
     const y = -i * lh
-    if (numbers) {
-      const s = String(i + 1)
-      const nid = w.newId()
-      w.set(newMob(nid, 'code_token', { sc: '#75715E', fc: '#75715E', sw: 0, so: 1, fo: 1 }, [], {
-        text: { str: s, em, weight: 'normal', slant: 'normal', w: s.length * cw, h: em, family: 'mono', left: true },
-        m: translate(s.length * cw / 2, y),
-      }))
-      kids.push(nid)
-    }
+    if (numbers) numIds.push(token(String(i + from), '#75715E', 0, y))
+    const toks: number[] = []
     let col = 0
-    for (const tok of tokenizeCode(line, lang)) {
-      if (tok.s.trim()) {
-        const tid = w.newId()
-        const wd = tok.s.length * cw
-        w.set(newMob(tid, 'code_token', { sc: tok.c, fc: tok.c, sw: 0, so: 1, fo: 1 }, [], {
-          text: { str: tok.s, em, weight: 'normal', slant: 'normal', w: wd, h: em, family: 'mono', left: true },
-          m: translate(gutter + col * cw + wd / 2, y), data: { text: tok.s },
-        }))
-        kids.push(tid)
-      }
-      col += tok.s.length
+    for (const tk of tokenizeCode(line, lang)) {
+      if (tk.s.trim()) toks.push(token(tk.s, tk.c, gutter + col * cw, y))
+      col += tk.s.length
     }
+    const lid = w.newId()
+    w.set(newMob(lid, 'code_line', styleFrom(props), [], { children: toks, data: { text: line } }))
+    lineIds.push(lid)
   })
-  const linesId = w.newId()
-  w.set(newMob(linesId, 'group', styleFrom(props), [], { children: kids }))
-  const b = familyBox(w, linesId)
+  const nid = w.newId(), cid = w.newId()
+  w.set(newMob(nid, 'group', styleFrom(props), [], { children: numIds }))
+  w.set(newMob(cid, 'group', styleFrom(props), [], { children: lineIds }))
+  const b = unionBoxes(w, [nid, cid])
   const pad = 0.3
   const bg = w.newId()
   const bgColor = normColor(props.background_color ?? '#272822', '#272822')
   w.set(newMob(bg, 'code_background', { sc: bgColor, fc: bgColor, sw: 0, so: 1, fo: 1 }, [roundedRectSub(b[2] - b[0] + 2 * pad, b[3] - b[1] + 2 * pad, 0.2)], {
     m: translate((b[0] + b[2]) / 2, (b[1] + b[3]) / 2),
   }))
-  group(env, id, kind, props, [bg, linesId], { data: { code } })
+  // [0] background, [1] line numbers (one per line), [2] code lines.
+  group(env, id, kind, props, [bg, nid, cid], { data: { code } })
   moveCenterTo(w, id, 0, 0)
+}
+
+function unionBoxes(w: World, ids: number[]): Box {
+  let b: Box = null
+  for (const i of ids) {
+    const x = familyBox(w, i)
+    if (x[0] === x[2] && x[1] === x[3] && !w.get(i).children.length) continue
+    b = b ? [Math.min(b[0], x[0]), Math.min(b[1], x[1]), Math.max(b[2], x[2]), Math.max(b[3], x[3])] : x
+  }
+  return b || [0, 0, 0, 0]
 }
 
 /* ------------------------------------------------------------- graphing */
@@ -476,7 +499,8 @@ function makeBarChart(env: MakeEnv, id: number, kind: string, props: Kw): void |
   const maxV = Math.max(0, ...values), minV = Math.min(0, ...values)
   const yr = Array.isArray(props.y_range) ? props.y_range : [minV, maxV > 0 ? maxV : 1, Math.max(1, Math.ceil((maxV - minV) / 6))]
   const r = makeAxes(env, id, 'axes', {
-    x_range: [0, n, 1], y_range: yr, x_length: num(props.x_length, Math.round(env.fw) - 4), y_length: num(props.y_length, Math.round(env.fh) - 2),
+    // Manim's BarChart: one unit per bar across, 4 units high (frame height − 4).
+    x_range: [0, n, 1], y_range: yr, x_length: num(props.x_length, n), y_length: num(props.y_length, env.fh - 4),
     tips: false, axis_config: { include_tip: false, ...(props.axis_config || {}) }, x_axis_config: { include_ticks: false, ...(props.x_axis_config || {}) },
   })
   return all([r], () => {
@@ -510,7 +534,7 @@ function makeBarChart(env: MakeEnv, id: number, kind: string, props: Kw): void |
       })
       const lg = w.newId()
       w.set(newMob(lg, 'group', ax.style, [], { children: labelIds }))
-      w.update(id, { kind, children: [...ax.children, gid, lg], data: { ...ax.data, bars: gid, values } })
+      w.update(id, { kind, children: [...ax.children, gid, lg], data: { ...ax.data, bars: gid, values, props } })
     })
   })
 }
@@ -560,8 +584,9 @@ export function graphLayout(n: number, edges: Array<[number, number]>, layout: u
     return pos
   }
   const kind = String(layout || 'spring')
-  if (kind === 'circular' || kind === 'shell') pos = Array.from({ length: n }, (_, i) => [Math.cos((TAU * i) / n), Math.sin((TAU * i) / n)] as Pt)
-  else if (kind === 'tree') {
+  // Circular is not re-centred: vertex 0 sits at (scale, 0), as in Manim.
+  if (kind === 'circular' || kind === 'shell') return Array.from({ length: n }, (_, i) => [scale * Math.cos((TAU * i) / n), scale * Math.sin((TAU * i) / n)] as Pt)
+  if (kind === 'tree') {
     const adj: number[][] = Array.from({ length: n }, () => [])
     for (const [a, b] of edges) { adj[a].push(b); adj[b].push(a) }
     const depth = new Array(n).fill(-1)
@@ -615,19 +640,28 @@ export function graphLayout(n: number, edges: Array<[number, number]>, layout: u
 function makeNetwork(env: MakeEnv, id: number, kind: string, props: Kw, directed: boolean): void | Promise<void> {
   const verts = (props.vertices ?? []) as unknown[]
   const n = verts.length
-  const edges = ((props.edges ?? []) as unknown[][]).map(e => [verts.indexOf(e[0]) >= 0 ? verts.indexOf(e[0]) : Number(e[0]), verts.indexOf(e[1]) >= 0 ? verts.indexOf(e[1]) : Number(e[1])] as [number, number])
-  const pos = graphLayout(n, edges, props.layout, num(props.layout_scale, 2), Math.max(0, verts.indexOf(props.root_vertex)))
-  const vc: Kw = props.vertex_config || {}
-  const ec: Kw = props.edge_config || {}
+  // Edges are vertex indices (the Python half's form); vertex labels are accepted too.
+  const idx = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < n ? v : Math.max(0, verts.indexOf(v)))
+  const edges = ((props.edges ?? []) as unknown[][]).map(e => [idx(e[0]), idx(e[1])] as [number, number])
+  const root = typeof props.root_vertex === 'number' ? props.root_vertex : Math.max(0, verts.indexOf(props.root_vertex))
+  const pos = graphLayout(n, edges, props.layout, num(props.layout_scale, 2), root)
+  // vertex_config / edge_config: one style for all, or {per: {"<index>" | "i,j": style}}.
+  const cfgFor = (c: Kw | undefined, key: string): Kw => {
+    if (!c) return {}
+    if (c.per && typeof c.per === 'object') return { ...(c.per[key] || {}) }
+    return c
+  }
   const w = env.w
   const vIds = verts.map(() => w.newId())
   const labels = props.labels
   const rs = vIds.map((vid, i) => {
+    const vc = cfgFor(props.vertex_config, String(i))
     if (labels) return makeLabeledDot(env, vid, 'labeled_dot', { label: String(verts[i]), point: [...pos[i], 0], ...vc })
     put(env, vid, 'dot', vc, styleFrom(vc, { sw: 0, fo: 1 }), [circleSub([0, 0], num(vc.radius, 0.08))], { m: translate(pos[i][0], pos[i][1]) })
   })
   return all(rs, () => {
     const eIds = edges.map(([a, b]) => {
+      const ec = cfgFor(props.edge_config, `${a},${b}`)
       const eid = w.newId()
       const ra = familyBox(w, vIds[a]), rb = familyBox(w, vIds[b])
       const r = Math.max((ra[2] - ra[0]) / 2, (rb[2] - rb[0]) / 2)
@@ -635,7 +669,11 @@ function makeNetwork(env: MakeEnv, id: number, kind: string, props: Kw, directed
       else put(env, eid, 'line', ec, styleFrom(ec), [lineSub(pos[a], pos[b])], { z: -1, data: { start: pos[a], end: pos[b] } })
       return eid
     })
-    group(env, id, kind, props, [...vIds, ...eIds], { data: { vertices: verts, edges } })
+    // [0] vertices in order, [1] edges in order.
+    const vg = w.newId(), eg = w.newId()
+    w.set(newMob(vg, 'group', styleFrom({}), [], { children: vIds }))
+    w.set(newMob(eg, 'group', styleFrom({}), [], { children: eIds }))
+    group(env, id, kind, props, [vg, eg], { data: { vertices: verts, edges, props } })
   })
 }
 
@@ -643,10 +681,15 @@ function makeNetwork(env: MakeEnv, id: number, kind: string, props: Kw, directed
 
 function makeLabeledDot(env: MakeEnv, id: number, kind: string, props: Kw): void | Promise<void> {
   const lid = env.w.newId()
-  const r = makeText(env, lid, 'text', { font_size: props.font_size ?? 32, color: props.label_color ?? BLACK }, String(props.label ?? ''))
+  // The label is TeX in Manim (MathTex); plain text when TeX is not available.
+  const lp = { font_size: props.font_size ?? 48, color: props.label_color ?? BLACK }
+  const r = env.tex && props.label_is_text !== true
+    ? makeTex(env, lid, 'mathtex', { ...lp, parts: [String(props.label ?? '')] }, 'math')
+    : makeText(env, lid, 'text', lp, String(props.label ?? ''))
   return all([r], () => {
     const b = familyBox(env.w, lid)
-    const rad = props.radius != null ? num(props.radius, 0.3) : 0.1 + Math.max(b[2] - b[0], b[3] - b[1]) / 2
+    // Measured from Manim: the dot is about 0.92 × the label's larger side in radius.
+    const rad = props.radius != null ? num(props.radius, 0.3) : 0.92 * Math.max(b[2] - b[0], b[3] - b[1])
     const at = pt(env, props.point, [0, 0])
     moveCenterTo(env.w, lid, at[0], at[1])
     put(env, id, kind, props, styleFrom(props, { sw: 0, fo: 1 }), [circleSub([0, 0], rad)], { m: translate(at[0], at[1]), children: [lid] })
@@ -806,7 +849,7 @@ export const MORE_KINDS: Record<string, Builder> = {
     put(env, id, kind, p, styleFrom(p), transformPaths([polySub([[0, s], [s, s], [s, 0]], false)], rotateAbout(num(p.angle, 0), [0, 0])))
   },
   cross: (env, id, p, kind) => {
-    const st = styleFrom({ stroke_width: 6, ...p }, { color: RED, sw: 6 })
+    const st = { ...styleFrom({ stroke_width: 6, ...p }, { color: RED, sw: 6 }), fc: p.fill_color != null ? normColor(p.fill_color, WHITE) : WHITE }
     let box: Box = [-1, -1, 1, 1]
     if (p.mobject != null || p.target != null) box = targetsBox(env.w, p.mobject ?? p.target)
     const k = num(p.scale_factor, 1)
@@ -842,6 +885,17 @@ export const MORE_KINDS: Record<string, Builder> = {
     }
     put(env, id, kind, p, styleFrom(p), [], { children: kids })
   },
+  /** TangentLine(vmobject, alpha, length): a line of `length` touching the curve at proportion alpha. */
+  tangent_line: (env, id, p, kind) => {
+    const src = resolveTarget(env.w, p.vmobject ?? p.target)
+    const paths = leaves(env.w, src).flatMap(i => transformPaths(env.w.get(i).paths, env.w.get(i).m))
+    const al = Math.max(0, Math.min(1, num(p.alpha, 0.5))), d = num(p.d_alpha, 1e-6)
+    const a = pointAt(paths, Math.max(0, al - d)), b = pointAt(paths, Math.min(1, al + d)), c = pointAt(paths, al)
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1
+    const h = num(p.length, 1) / 2
+    const s0: Pt = [c[0] - (dx / l) * h, c[1] - (dy / l) * h], s1: Pt = [c[0] + (dx / l) * h, c[1] + (dy / l) * h]
+    put(env, id, kind, p, styleFrom(p), [lineSub(s0, s1)], { data: { start: s0, end: s1 } })
+  },
   cubic_bezier: (env, id, p, kind) => {
     const P = [p.start_anchor, p.start_handle, p.end_handle, p.end_anchor].map(v => resolvePoint(env.w, v))
     put(env, id, kind, p, styleFrom(p), [{ points: P, closed: false }], { data: { start: P[0], end: P[3] } })
@@ -852,7 +906,7 @@ export const MORE_KINDS: Record<string, Builder> = {
   },
   bulleted_list: (env, id, p, kind) => makeParagraph(env, id, kind, p, ((p.items ?? []) as unknown[]).map(String), true),
   markup_text: (env, id, p, kind) => makeMarkup(env, id, kind, p),
-  table: (env, id, p, kind) => makeTable(env, id, kind, p, 'text'),
+  table: (env, id, p, kind) => makeTable(env, id, kind, p, p.element === 'mathtex' ? 'mathtex' : 'text'),
   math_table: (env, id, p, kind) => makeTable(env, id, kind, p, 'mathtex'),
   decimal_table: (env, id, p, kind) => makeTable(env, id, kind, p, 'number'),
   integer_table: (env, id, p, kind) => makeTable(env, id, kind, p, 'number'),
@@ -866,7 +920,7 @@ export const MORE_KINDS: Record<string, Builder> = {
   bar_chart: (env, id, p, kind) => makeBarChart(env, id, kind, p),
   area: (env, id, p, kind) => makeArea(env, id, kind, p),
   riemann_rectangles: (env, id, p, kind) => makeRiemann(env, id, kind, p),
-  network_graph: (env, id, p, kind) => makeNetwork(env, id, kind, p, false),
+  network_graph: (env, id, p, kind) => makeNetwork(env, id, kind, p, !!p.directed),
   di_graph: (env, id, p, kind) => makeNetwork(env, id, kind, p, true),
   svg_mobject: (env, id, p, kind) => makeSvg(env, id, kind, p),
   image_mobject: (env, id, p, kind) => makeImage(env, id, kind, p),

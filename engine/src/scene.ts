@@ -46,6 +46,26 @@ export interface ImageRef {
   src: CanvasImageSource | null
   w: number
   h: number
+  /** Rounded corners (scene units). */
+  radius?: number
+  /** A stroke around the picture's (rounded) box; width in Manim units (×0.01). */
+  border?: { color: string; width: number }
+  /** The part of the picture shown, as fractions [x0, y0, x1, y1], origin bottom-left. */
+  crop?: [number, number, number, number]
+  /** Its size before any crop, for crop() to work from. */
+  fullW?: number
+  fullH?: number
+  /** Redrawn by Python every frame (a PycturesCanvas): never downscaled or cached. */
+  live?: boolean
+}
+
+/** A drop shadow (scene units): blur radius, offset, colour and opacity. */
+export interface Shadow {
+  blur: number
+  dx: number
+  dy: number
+  color: string
+  opacity: number
 }
 
 export interface Mob {
@@ -59,6 +79,9 @@ export interface Mob {
   text?: TextRun
   /** A picture (PycturesCanvas, ImageMobject) drawn into a w × h local box centred on the origin. */
   image?: ImageRef
+  shadow?: Shadow
+  /** Fill with the even-odd rule (an SVG's fill-rule="evenodd"). */
+  evenodd?: boolean
   /** Per-kind facts in LOCAL coordinates (line ends, axis mapping, TeX strings). */
   data?: Record<string, any>
 }

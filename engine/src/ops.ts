@@ -361,6 +361,23 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
     },
   },
   set_z: { params: ['z'], run: () => {} },
+  /** ApplyMatrix's end state: a 2×2 (or 3×3) matrix about a point (default ORIGIN). */
+  apply_matrix: {
+    params: ['matrix', 'about_point'],
+    run: (w, id, a) => {
+      const M = a.matrix as number[][]
+      const p: Pt = a.about_point != null ? resolvePoint(w, a.about_point) : ORIGIN
+      const L: Mat = [M[0][0], M[1][0], M[0][1], M[1][1], 0, 0]
+      transformFamily(w, id, mul(translate(p[0], p[1]), mul(L, translate(-p[0], -p[1]))))
+    },
+  },
+  /** Rebuild with more settings (keeping where it is): numbers on axes, new bar values, a new graph layout. */
+  add_coordinates: { params: ['num_decimal_places'], run: (w, id, a) => remake(w, id, { include_numbers: true }) },
+  change_bar_values: { params: ['values'], run: (w, id, a) => remake(w, id, { values: a.values }) },
+  change_layout: {
+    params: ['layout', 'layout_scale', 'layout_config', 'root_vertex'],
+    run: (w, id, a) => remake(w, id, Object.fromEntries(Object.entries(a).filter(([, v]) => v != null))),
+  },
   /** ValueTracker / DecimalNumber / Integer. */
   set_value: { params: ['value'], run: (w, id, a) => setNumberValue(w, id, num(a.value, 0)) },
   increment_value: {
@@ -434,6 +451,22 @@ export const OPS: Record<string, { params: string[]; run: OpFn }> = {
 }
 
 export const OP_NAMES = Object.keys(OPS)
+
+/** The engine's way to rebuild an object from its make() props (set once by the engine). */
+let remakeHook: ((w: World, id: number, kind: string, props: Kw) => void) | null = null
+export function setRemake(f: (w: World, id: number, kind: string, props: Kw) => void) {
+  remakeHook = f
+}
+
+function remake(w: World, id: number, patch: Kw) {
+  const old = w.get(id)
+  const props = old.data?.props
+  if (!props || !remakeHook) throw new Error(`this ${old.kind} cannot be rebuilt here`)
+  remakeHook(w, id, old.kind, { ...props, ...patch })
+  // Rebuilt at the origin: put it back where it was.
+  transformFamily(w, id, old.m)
+  w.update(id, { z: old.z })
+}
 
 /** The Python half's dict keys → this table's parameter names, per op. */
 const KEY_ALIASES: Record<string, Record<string, string>> = {

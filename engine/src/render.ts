@@ -16,6 +16,7 @@ import type { Subpath } from './geometry-types'
 import { partialPaths } from './geometry'
 import { apply, IDENTITY, matScale, mul, type Mat } from './math'
 import { CAMERA, hasGeom } from './scene'
+import { cssFamily } from './text'
 import type { DrawItem, Frame } from './frame'
 
 export interface RenderOpts {
@@ -87,8 +88,8 @@ export function collectItems(f: Frame, roots?: number[]): DrawItem[] {
     if (!mob) return
     if (hasGeom(mob)) {
       items.push(o
-        ? { paths: mob.paths, m: o.m, style: o.style, alpha: o.alpha, partial: o.partial, z: mob.z, text: mob.text, image: mob.image }
-        : { paths: mob.paths, m: mob.m, style: mob.style, alpha: 1, partial: null, z: mob.z, text: mob.text, image: mob.image })
+        ? { paths: mob.paths, m: o.m, style: o.style, alpha: o.alpha, partial: o.partial, z: mob.z, text: mob.text, image: mob.image, shadow: mob.shadow, evenodd: mob.evenodd }
+        : { paths: mob.paths, m: mob.m, style: mob.style, alpha: 1, partial: null, z: mob.z, text: mob.text, image: mob.image, shadow: mob.shadow, evenodd: mob.evenodd })
     }
     for (const c of mob.children) walk(c)
   }
@@ -151,7 +152,7 @@ function drawItem(ctx: CanvasRenderingContext2D, it: DrawItem, V: Mat) {
     ctx.setTransform(M[0] * k, M[1] * k, -M[2] * k, -M[3] * k, M[4], M[5])
     ctx.globalAlpha = Math.min(1, op)
     ctx.fillStyle = st.fc
-    const fam = t.family === 'mono' ? 'Menlo, Consolas, "Liberation Mono", monospace' : '"Liberation Sans", Arial, sans-serif'
+    const fam = t.family === 'mono' ? 'Menlo, Consolas, "Liberation Mono", monospace' : cssFamily(t.family || '')
     ctx.font = `${t.slant === 'italic' ? 'italic ' : ''}${t.weight === 'bold' ? 'bold ' : ''}${t.em * 100}px ${fam}`
     ctx.textAlign = t.left ? 'left' : 'center'
     ctx.textBaseline = 'middle'
@@ -208,6 +209,14 @@ export function measure(f: Frame, id: number) {
       for (const p of sp.points) {
         const q = apply(it.m, p)
         if (!first) first = q
+        box = box ? [Math.min(box[0], q[0]), Math.min(box[1], q[1]), Math.max(box[2], q[0]), Math.max(box[3], q[1])] : [q[0], q[1], q[0], q[1]]
+      }
+    }
+    // fillText runs and pictures have no outline: their box corners stand in.
+    const rect = it.text || it.image
+    if (rect && !paths.length) {
+      for (const c of [[-rect.w / 2, -rect.h / 2], [rect.w / 2, -rect.h / 2], [rect.w / 2, rect.h / 2], [-rect.w / 2, rect.h / 2]] as Array<[number, number]>) {
+        const q = apply(it.m, c)
         box = box ? [Math.min(box[0], q[0]), Math.min(box[1], q[1]), Math.max(box[2], q[0]), Math.max(box[3], q[1])] : [q[0], q[1], q[0], q[1]]
       }
     }

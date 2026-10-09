@@ -29,7 +29,8 @@ export interface UpdaterSpec {
   ops?: Array<[string, unknown, unknown?]>
   /** Relative ops (shift, rotate…) in a plain updater: applied once per 1/60 s, like Manim at 60 fps. */
   accumulate?: boolean
-  make?: [string, unknown]
+  /** [kind, props, ops?]: the short template form. */
+  make?: [string, unknown, unknown?]
   /** always_redraw: {key, kind, props, ops}, with nested templates and {tmpl: key} references. */
   template?: Template
 }
@@ -46,6 +47,25 @@ function isTemplate(v: any): v is Template {
   return v && typeof v === 'object' && !Array.isArray(v) && 'key' in v && 'kind' in v && 'props' in v
 }
 
+let arrKeys = -1
+
+/** [kind, props, ops?] (the short template form) → a Template; nested children too. */
+export function arrTemplate(a: any[]): Template {
+  const props = a[1] && typeof a[1] === 'object' ? { ...a[1] } : {}
+  if (Array.isArray(props.children)) props.children = props.children.map((c: any) => (isArrTemplate(c) ? arrTemplate(c) : c))
+  return { key: arrKeys--, kind: String(a[0]), props, ops: Array.isArray(a[2]) ? a[2] : [] }
+}
+
+/** Is this the short template form: a kind name, then a plain props dict (not an expression or target)? */
+export function isArrTemplate(v: any): boolean {
+  if (!Array.isArray(v) || typeof v[0] !== 'string' || v.length < 2 || v.length > 3) return false
+  const p = v[1]
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return false
+  if ('$pt' in p || '$x' in p || 'tmpl' in p) return false
+  if (typeof p.id === 'number' && Object.keys(p).every(k => k === 'id' || k === 'path')) return false
+  return v.length === 2 || Array.isArray(v[2])
+}
+
 /**
  * Turn templates inside a value into real (temporary) objects in `w` and
  * {tmpl: key, path?} references into targets. `keys` maps template keys to
@@ -55,6 +75,9 @@ export function resolveTemplates(w: World, v: any, keys: Map<number, number>, de
   if (v === null || typeof v !== 'object') return v
   if (Array.isArray(v)) return v.map(x => resolveTemplates(w, x, keys, deps))
   if (isTemplate(v)) return instantiate(w, v, keys, deps)
+  // Where an object goes (become(mobject=…), a group's children), the short form [kind, props, ops] builds one.
+  if (Array.isArray(v.mobject) && isArrTemplate(v.mobject)) v = { ...v, mobject: arrTemplate(v.mobject) }
+  if (Array.isArray(v.children) && v.children.some(isArrTemplate)) v = { ...v, children: v.children.map((c: any) => (isArrTemplate(c) ? arrTemplate(c) : c)) }
   if ('tmpl' in v && Object.keys(v).every(k => k === 'tmpl' || k === 'path')) {
     const id = keys.get(Number(v.tmpl))
     if (id == null) throw new Error('an object made inside an updater was used before it was made')
@@ -180,6 +203,7 @@ export class Updaters {
         if (r.spec.kind === 'op' && !r.spec.accumulate) touched.push(...runOps(view, r.spec.ops, r.target, deps))
         else if (r.spec.kind === 'redraw') this.redraw(view, r, deps)
         else if ((r.spec.kind === 'dt' || r.spec.kind === 'op') && seg) this.integrate(view, r, t, seg, deps)
+        else if (r.spec.kind === 'python') continue
         else continue
       } catch {
         // An updater that cannot run at this moment (an object gone) leaves its target as it is.
@@ -193,6 +217,7 @@ export class Updaters {
   /** always_redraw: rebuild from the template; reuse the last build while the evaluated props are unchanged. */
   private redraw(view: World, r: UpdaterRec, deps: ApplyDeps) {
     // The cache key: the template with every expression evaluated now.
+    if (!r.spec.template && r.spec.make && isArrTemplate(r.spec.make)) r.spec.template = arrTemplate(r.spec.make)
     const tm = r.spec.template
     const [kind, props] = r.spec.make || [tm ? tm.kind : 'group', tm ? tm : {}]
     const evaluated = deref(view, props)
@@ -259,6 +284,13 @@ export class Updaters {
     }
     if (end.value !== start.value) setNumberValue(view, r.target, Number(view.get(r.target).data?.value ?? 0) + end.value - start.value)
     evalClock.dt = 0
+  }
+
+  /** For a Python-run updater's live key: is updater `uid` on at t? (null: no such updater registered) */
+  activeUid(uid: string, t: number): boolean | null {
+    const recs = this.list.filter(r => r.uid === uid)
+    if (!recs.length) return null
+    return recs.some(r => r.from <= t && t < r.to && !r.off.some(([a, b]) => a <= t && t < b))
   }
 
   get any(): boolean {

@@ -19,7 +19,7 @@ import { alignPaths, bbox, circleSub, lerpPaths, pointAt, polySub, rectCorners, 
 import { linear, rateByName, smooth, thereAndBack, type RateFn } from './rate'
 import {
   addToDisplay, become, boxCenter, centerOf, critical, family, familyBox, hasGeom, isShown, leaves,
-  removeFromDisplay, transformFamily, World, type Mob, type Snap, type Style,
+  removeFromDisplay, styleFamily, transformFamily, World, type Mob, type Snap, type Style,
 } from './scene'
 import { endPoint, evalClock, evalValue, isMobRef, normArgs, num, resolvePoint, resolveTarget, resolveVec, withPoint, type Kw } from './args'
 import type { Box } from './geometry'
@@ -77,7 +77,8 @@ interface Leaf {
   target?: number
   apply(alpha: number, f: Frame, rate: RateFn, lag: number): void
   begin?: Effect
-  end?: Effect
+  /** r1 = the rate at the end (1 normally; 0 for there_and_back, which ends where it started). */
+  end?: (w: World, r1: number) => void
 }
 
 /** Apply a matrix (as a function of eased alpha) to every drawn part of a target. */
@@ -175,7 +176,7 @@ function morphItems(pairs: MorphPair[], alpha: number, rate: RateFn, lag: number
 }
 
 function itemOf(m: Mob, alpha: number): DrawItem {
-  return { paths: m.paths, m: m.m, style: m.style, alpha, partial: null, z: m.z, text: m.text, image: m.image }
+  return { paths: m.paths, m: m.m, style: m.style, alpha, partial: null, z: m.z, text: m.text, image: m.image, shadow: m.shadow, evenodd: m.evenodd }
 }
 
 /** Swap `a` for `b` in the scene list and in any group holding `a` (ReplacementTransform's end: same layer, same slot). */
@@ -275,6 +276,7 @@ const LEAF_PARAMS: Record<string, string[]> = {
   move_along_path: ['path'],
   animate: ['ops'],
   change_decimal_to_value: ['number'],
+  changing_decimal: ['function'],
   show_passing_flash: ['time_width'],
   draw_border_then_fill: ['stroke_width'],
 }
@@ -287,7 +289,7 @@ export const ANIM_KINDS = [
   'show_passing_flash', 'restore', 'change_decimal_to_value', 'apply_pointwise_function', 'apply_complex_function',
   'homotopy', 'complex_homotopy', 'apply_wave', 'show_increasing_subsets', 'show_submobjects_one_by_one',
   'add_text_letter_by_letter', 'remove_text_letter_by_letter', 'swap', 'cyclic_replace', 'fade_transform_pieces',
-  'broadcast', 'blink', 'focus_on', 'change_speed', 'wait', 'group', 'lagged', 'succession',
+  'broadcast', 'blink', 'focus_on', 'change_speed', 'changing_decimal', 'wait', 'group', 'lagged', 'succession',
 ]
 
 const ANIM_ALIASES: Record<string, string> = {
@@ -461,7 +463,8 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
       if (kind === 'grow_arrow') p = endPoint(w, id, 'start')
       const Z: Mat = [0, 0, 0, 0, p[0], p[1]]
       if (kind === 'shrink_to_center') {
-        return L({ apply: matrixLeaf(ids, x => lerpMat(IDENTITY, Z, x)), end: v => removeFromDisplay(v, [id]) })
+        // Not a remover in Manim: it ends as a zero-size object, still in the scene.
+        return L({ apply: matrixLeaf(ids, x => lerpMat(IDENTITY, Z, x)), end: v => transformFamily(v, id, Z) })
       }
       const ang = kind === 'spin_in_from_nothing' ? num(a.angle, Math.PI / 2) : 0
       const M = (x: number) => (ang ? mul(rotateAbout(-(1 - x) * ang, p), scaleAbout(x, x, p)) : lerpMat(Z, IDENTITY, x))
@@ -593,9 +596,12 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
       const fn = a.function ?? a.func ?? a.homotopy
       const src = ids.map(i => ({ id: i, mob: w.get(i), paths: worldPaths(w.get(i)) }))
       const complex = kind === 'apply_complex_function' || kind === 'complex_homotopy'
+      const homotopy = kind === 'homotopy' || kind === 'complex_homotopy'
       const mapPt = (p: Pt, alpha: number): Pt => {
         evalClock.alpha = alpha
+        evalClock.homotopy = homotopy
         const v = withPoint(p, () => evalValue(w, fn))
+        evalClock.homotopy = false
         if (complex && typeof v !== 'number') return [v[0], v[1]]
         return typeof v === 'number' ? [v, 0] : [v[0], v[1]]
       }
@@ -624,11 +630,10 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
         })
       }
       if (fn == null) throw new Error(`${spec.kind} needs a function the preview can trace`)
-      const homotopy = kind === 'homotopy' || kind === 'complex_homotopy'
       // ApplyPointwiseFunction blends straight from the start to the mapped points (built once).
       const ends = homotopy ? null : src.map(s0 => mapPaths(s0.paths, p => mapPt(p, 1)))
       return L({
-        run: homotopy ? 3 : 1, rate: homotopy ? linear : smooth,
+        run: 3,
         apply: (alpha, f, rate) => {
           const x = rate(alpha)
           src.forEach((s0, k) => {
@@ -657,7 +662,10 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
       const removing = kind === 'remove_text_letter_by_letter'
       const run = kind.endsWith('letter_by_letter') ? Math.max(0.06, num(a.time_per_char, 0.1) * n) : 1
       const apply: Leaf['apply'] = (alpha, f, rate) => {
-        let shown = Math.floor(rate(alpha) * n + 1e-9)
+        const v = rate(alpha) * n
+        // AddTextLetterByLetter rounds up (ceil), ShowIncreasingSubsets down, unless int_func says otherwise.
+        const up = a.int_func ? a.int_func === 'ceil' : kind.endsWith('letter_by_letter')
+        let shown = up ? Math.ceil(v - 1e-9) : Math.floor(v + 1e-9)
         if (removing) shown = n - shown
         fams.forEach((fam, i) => {
           const hide = kind === 'show_submobjects_one_by_one' ? i !== Math.min(n - 1, shown) : i >= shown
@@ -731,18 +739,19 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
     }
 
     case 'blink': {
+      // Manim: visible for time_on, then (hidden time_off, visible time_on) × blinks; hide_at_end drops the last show.
       const id = tgt(), ids = leaves(w, id)
       const on = num(a.time_on, 0.5), off = num(a.time_off, 0.5), blinks = Math.max(1, Math.round(num(a.blinks, 1)))
-      const run = blinks * (on + off)
+      const hideEnd = !!a.hide_at_end
+      const run = on + blinks * (off + on) - (hideEnd ? on : 0)
       return L({
         run, rate: linear,
         apply: (alpha, f) => {
           const t = alpha * run
-          const ph = t % (on + off)
-          const hidden = (alpha < 1 && ph < off) || (alpha >= 1 && !!a.hide_at_end)
+          const hidden = alpha >= 1 ? hideEnd : t >= on && (t - on) % (off + on) < off
           if (hidden) for (const i of ids) { const o = f.get(i); if (o) o.alpha = 0 }
         },
-        end: a.hide_at_end ? v => removeFromDisplay(v, [id]) : undefined,
+        end: hideEnd ? v => styleFamily(v, id, s => ({ ...s, fo: 0, so: 0 })) : undefined,
       })
     }
 
@@ -767,6 +776,24 @@ function buildLeafInner(spec: AnimSpec, ctx: BuildCtx): Leaf {
 
     case 'change_decimal_to_value':
       return buildAnimate(spec, { ops: [['set_value', [a.number ?? a.value ?? a.target_number]]] }, ctx)
+
+    case 'changing_decimal': {
+      // The shown value is a traced function of the animation's progress (["var","alpha"]).
+      const id = tgt()
+      const fn = a.function ?? a.number_update_func
+      const base = new World(new Map(w.mobs), w.display.slice(), w.ids)
+      const at = (x: number) => { evalClock.alpha = x; return Number(evalValue(w, fn)) }
+      return L({
+        apply: (alpha, f, rate) => {
+          const o = f.get(id)
+          if (!o) return
+          const tmp = base.fork()
+          setNumberValue(tmp, id, at(rate(alpha)))
+          o.replace = leaves(tmp, id).map(i => itemOf(tmp.get(i), o.alpha))
+        },
+        end: v => setNumberValue(v, id, at(1)),
+      })
+    }
   }
   throw new Error(`the animation layer cannot play "${kind}" yet`)
 }
@@ -850,7 +877,7 @@ function combineLeaves(list: Leaf[]): Leaf {
   return {
     run: 1, rate: smooth, lag: 0,
     apply: (alpha, f, rate, lag) => { for (const l of list) l.apply(alpha, f, rate, lag) },
-    end: v => { for (const l of list) l.end?.(v) },
+    end: (v, r1) => { for (const l of list) l.end?.(v, r1) },
   }
 }
 
@@ -858,7 +885,21 @@ function buildAnimateOn(w: World, end: World, id: number): Leaf {
   const famA = family(w, id), famB = family(end, id)
   const same = famA.length === famB.length && famA.every((x, i) => x === famB[i])
   const endMobs = famB.map(i => end.get(i))
-  const finish: Effect = v => { for (const m of endMobs) v.set(m) }
+  // The state the animation ends in: the target, unless the rate does not end at 1 (there_and_back ends
+  // where it started; running past 1 overshoots).
+  const finish = (v: World, r1 = 1) => {
+    if (Math.abs(r1 - 1) < 1e-9) { for (const m of endMobs) v.set(m); return }
+    if (Math.abs(r1) < 1e-9) return
+    for (const m of endMobs) {
+      if (!v.has(m.id) || !w.has(m.id)) { v.set(m); continue }
+      const s0 = w.get(m.id)
+      const vs = s0.data?.value, ve = m.data?.value
+      v.set({
+        ...m, m: lerpMat(s0.m, m.m, r1), style: lerpStyle(s0.style, m.style, r1),
+        data: typeof vs === 'number' && typeof ve === 'number' ? { ...m.data, value: vs + (ve - vs) * r1 } : m.data,
+      })
+    }
+  }
   // A number whose value changes: show the value counting (digits from the glyph cache each frame).
   const sm = w.get(id), em = end.get(id)
   if (isNumber(sm) && sm.data.value !== em.data.value) {
@@ -927,7 +968,7 @@ function leafNode(leaf: Leaf, spec: AnimSpec, ctx: BuildCtx): Node {
     events: () => {
       const ev = []
       if (leaf.begin) ev.push({ t: 0, end: false, fn: leaf.begin })
-      if (leaf.end) ev.push({ t: run, end: true, fn: leaf.end })
+      if (leaf.end) { const r1 = rate(1); ev.push({ t: run, end: true, fn: (v: World) => leaf.end(v, r1) }) }
       return ev
     },
   }
@@ -1002,32 +1043,34 @@ export function build(spec: AnimSpec, ctx: BuildCtx): Node {
  * integral of 1/speed, tabulated once.
  */
 function changeSpeed(spec: AnimSpec, ctx: BuildCtx): Node {
-  const inner = build((spec.items || [])[0] || { kind: 'wait', run_time: 0 }, ctx)
   const a = normArgs(spec.args, ['speedinfo'])
-  const info = Object.entries((a.speedinfo || {}) as Record<string, number>).map(([k, v]) => [Number(k), Number(v)] as [number, number]).sort((x, y) => x[0] - y[0])
-  if (!info.length || info[0][0] > 0) info.unshift([0, info.length ? info[0][1] : 1])
+  const inner = build((spec.items || [])[0] || (spec as any).anim || a.anim || { kind: 'wait', run_time: 0 }, ctx)
+  const info = Object.entries((a.speedinfo || {}) as Record<string, number>).map(([k, v]) => [Number(k), Math.max(1e-3, Number(v))] as [number, number]).sort((x, y) => x[0] - y[0])
+  // Speed 1 at the start unless given, held after the last point; it changes
+  // linearly in REAL time between points (Manim's), so a piece of the
+  // animation's own time Δu takes Δu / (mean speed).
+  if (!info.length || info[0][0] > 0) info.unshift([0, 1])
   if (info[info.length - 1][0] < 1) info.push([1, info[info.length - 1][1]])
-  const speed = (u: number) => {
-    for (let i = 0; i + 1 < info.length; i++) {
-      const [u0, s0] = info[i], [u1, s1] = info[i + 1]
-      if (u <= u1) return Math.max(1e-3, s0 + (s1 - s0) * (u1 > u0 ? (u - u0) / (u1 - u0) : 0))
-    }
-    return Math.max(1e-3, info[info.length - 1][1])
-  }
-  const N = 400
-  const real = new Float64Array(N + 1)
-  for (let i = 1; i <= N; i++) real[i] = real[i - 1] + (inner.run / N) / speed((i - 0.5) / N)
-  const run = real[N]
+  const pieces = info.slice(0, -1).map(([u0, s0], i) => {
+    const [u1, s1] = info[i + 1]
+    return { u0, u1, s0, s1, T: (((u1 - u0) * inner.run) / ((s0 + s1) / 2)) }
+  })
+  const run = pieces.reduce((s, p) => s + p.T, 0)
   return {
     run,
     intro: inner.intro,
     shownBefore: inner.shownBefore,
     frame: (t, f) => {
-      const tt = Math.max(0, Math.min(run, t))
-      let i = 0
-      while (i < N && real[i + 1] < tt) i++
-      const span = real[i + 1] - real[i] || 1
-      inner.frame(((i + (tt - real[i]) / span) / N) * inner.run, f)
+      let tt = Math.max(0, Math.min(run, t))
+      for (const p of pieces) {
+        if (tt <= p.T || p === pieces[pieces.length - 1]) {
+          const tau = Math.min(tt, p.T)
+          const du = p.s0 * tau + ((p.s1 - p.s0) * tau * tau) / (2 * (p.T || 1))
+          inner.frame(p.u0 * inner.run + du, f)
+          return
+        }
+        tt -= p.T
+      }
     },
     events: () => inner.events().map(e => ({ ...e, t: e.t <= 0 ? 0 : e.t >= inner.run ? run : e.t })),
   }

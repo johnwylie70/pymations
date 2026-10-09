@@ -40,19 +40,63 @@ export interface TextOutline {
   height: number
 }
 
+/**
+ * The built-in fonts, all open licence and in the bundle's fonts/ folder:
+ * sans = Liberation Sans (SIL OFL), serif = KaTeX Main (SIL OFL, a Computer
+ * Modern design), mono = KaTeX Typewriter (SIL OFL; one weight).
+ */
 const FILES: Record<string, string> = {
   'normal|normal': 'LiberationSans-Regular.ttf',
   'bold|normal': 'LiberationSans-Bold.ttf',
   'normal|italic': 'LiberationSans-Italic.ttf',
   'bold|italic': 'LiberationSans-BoldItalic.ttf',
+  'serif:normal|normal': 'KaTeX_Main-Regular.ttf',
+  'serif:bold|normal': 'KaTeX_Main-Bold.ttf',
+  'serif:normal|italic': 'KaTeX_Main-Italic.ttf',
+  'serif:bold|italic': 'KaTeX_Main-BoldItalic.ttf',
+  'mono:normal|normal': 'KaTeX_Typewriter-Regular.ttf',
+  'mono:bold|normal': 'KaTeX_Typewriter-Regular.ttf',
+  'mono:normal|italic': 'KaTeX_Typewriter-Regular.ttf',
+  'mono:bold|italic': 'KaTeX_Typewriter-Regular.ttf',
 }
 
-export function fontKey(weight: unknown, slant: unknown): string {
+/** A font file the script named (a URL after the host resolved it): its own key, whatever the weight. */
+export function isFontFile(font: unknown): boolean {
+  const f = String(font || '')
+  return /\.(ttf|otf|woff2?)(\?|#|$)/i.test(f) || /^(blob:|data:|https?:)/.test(f)
+}
+
+/** A font family name → one of the built-ins (system fonts cannot be outlined here). */
+export function familyOf(font: unknown): 'sans' | 'serif' | 'mono' {
+  const f = String(font || '').toLowerCase()
+  if (/mono|courier|consol|menlo|typewriter|code/.test(f)) return 'mono'
+  if (/serif/.test(f) && !/sans/.test(f)) return 'serif'
+  if (/times|georgia|garamond|roman|palatino|baskerville|cambria|book/.test(f)) return 'serif'
+  return 'sans'
+}
+
+export function fontKey(weight: unknown, slant: unknown, font?: unknown): string {
+  if (font && isFontFile(font)) return 'url:' + String(font)
   const w = String(weight || 'normal').toLowerCase()
   const s = String(slant || 'normal').toLowerCase()
   const bold = w === 'bold' || w === 'heavy' || w === 'ultrabold' || w === 'semibold' || Number(w) >= 600
   const italic = s === 'italic' || s === 'oblique'
-  return `${bold ? 'bold' : 'normal'}|${italic ? 'italic' : 'normal'}`
+  const fam = font ? familyOf(font) : 'sans'
+  return `${fam === 'sans' ? '' : fam + ':'}${bold ? 'bold' : 'normal'}|${italic ? 'italic' : 'normal'}`
+}
+
+/** The CSS family for the fillText fallback of a font key. */
+export function cssFamily(key: string): string {
+  if (key.startsWith('url:')) return `"${fontFaceName(key)}", "Liberation Sans", Arial, sans-serif`
+  if (key.startsWith('mono:')) return 'Menlo, Consolas, "Liberation Mono", monospace'
+  if (key.startsWith('serif:')) return '"KaTeX_Main", "Times New Roman", serif'
+  return '"Liberation Sans", Arial, sans-serif'
+}
+
+function fontFaceName(key: string): string {
+  let h = 0
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) | 0
+  return 'pymations-font-' + (h >>> 0).toString(36)
 }
 
 let opentypePromise: Promise<any> | null = null
@@ -107,9 +151,19 @@ export class TextOutliner {
     if (!this.base || typeof fetch === 'undefined') return null
     if (!opentypePromise) opentypePromise = loadScriptOnce(this.base + 'opentype.min.js', 'opentype')
     const ot = await opentypePromise
-    const res = await fetch(this.base + 'fonts/' + FILES[key])
+    const url = key.startsWith('url:') ? key.slice(4) : this.base + 'fonts/' + FILES[key]
+    const res = await fetch(url)
     if (!res.ok) throw new Error('font ' + res.status)
-    return ot.parse(await res.arrayBuffer()) as OtFont
+    const buf = await res.arrayBuffer()
+    // A font file of the script's own: also a FontFace, so the fillText fallback uses it too.
+    if (key.startsWith('url:') && typeof FontFace !== 'undefined' && typeof document !== 'undefined') {
+      try {
+        const face = new FontFace(fontFaceName(key), buf.slice(0))
+        await face.load()
+        ;(document as any).fonts.add(face)
+      } catch { /* outlines still work */ }
+    }
+    return ot.parse(buf) as OtFont
   }
 
   private chars = new Map<string, CharGlyph | null>()
@@ -144,8 +198,9 @@ export class TextOutliner {
    * character (spaces are skipped, like Manim's Text), lines stacked, the
    * whole block centred on the origin. Null if the font is not available.
    */
-  outline(str: string, em: number, key: string, lineSpacing = 1.2): TextOutline | null {
-    const ck = `${key}|${em}|${lineSpacing}|${str}`
+  /** letterSpacing: extra space after each character, in scene units. */
+  outline(str: string, em: number, key: string, lineSpacing = 1.2, letterSpacing = 0): TextOutline | null {
+    const ck = `${key}|${em}|${lineSpacing}|${letterSpacing}|${str}`
     if (this.cache.has(ck)) return this.cache.get(ck)
     const font = this.fonts.get(key)
     if (!font) return null
@@ -161,7 +216,7 @@ export class TextOutliner {
         const g = font.charToGlyph(ch)
         if (prev) x += font.getKerningValue(prev, g) * k
         if (ch.trim()) glyphs.push({ char: ch, paths: commandsToPaths(g.path.commands, k, x, y) })
-        x += g.advanceWidth * k
+        x += g.advanceWidth * k + letterSpacing
         prev = g
       }
       maxW = Math.max(maxW, x)
