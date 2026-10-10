@@ -68,13 +68,14 @@ function prop(obj, name) {
 
 // ---------------------------------------------------------------- images by relative path
 
-/** A relative path to an image or a sound: no scheme, not absolute, a known extension (pages.IMAGE_PATH). */
-const IMAGE_PATH = /^(?![a-z][a-z0-9+.-]*:|\/)(?:\.\/)?[^\s"'<>?#]+\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac)$/i
+/** A relative path to a picture, a sound or a font file: no scheme, not absolute, a known extension (pages.IMAGE_PATH). */
+const IMAGE_PATH = /^(?![a-z][a-z0-9+.-]*:|\/)(?:\.\/)?[^\s"'<>?#]+\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|ttf|otf|woff2?)$/i
 export function isRelativeImagePath(s) { return typeof s === 'string' && s.length < 300 && IMAGE_PATH.test(s) }
 export const IMAGE_TYPES = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif',
   mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2',
 }
 /** The key an image is packed under: as written, without a leading "./". */
 const packedKey = (s) => s.replace(/^(\.\/)+/, '')
@@ -438,7 +439,7 @@ function unpackEngine(eng) {
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : (input && input.url) || String(input)
     if (url.startsWith(prefix)) {
-      const b64 = fonts[decodeURIComponent(url.slice(prefix.length))]
+      const b64 = fonts[decodeURIComponent(url.slice(prefix.length).split(/[?#]/)[0])]
       if (b64 != null) return Promise.resolve(new Response(fromBase64(b64), { headers: { 'Content-Type': 'font/ttf' } }))
     }
     return pageFetch(input, init)
@@ -1006,6 +1007,9 @@ class Player {
     if (scene.opt.controls !== false) this.makeBar()
     this.onKey = (e) => this.key(e)
     window.addEventListener('keydown', this.onKey)
+    // The engine's notices (a font or an equation still loading after a
+    // while) and errors from work it finishes later, collected once a second.
+    this.poll = setInterval(() => this.takeErrors(), 1000)
   }
 
   /** A new run. Python's first command resets the engine itself. */
@@ -1045,6 +1049,7 @@ class Player {
   }
 
   destroy() {
+    clearInterval(this.poll)
     this.halt()
     this.observer.disconnect()
     window.removeEventListener('keydown', this.onKey)
@@ -1064,7 +1069,15 @@ class Player {
   }
 
   takeErrors() {
-    for (const msg of this.engine.takeErrors ? this.engine.takeErrors() : []) this.report(msg)
+    const e = this.engine
+    if (typeof e.takeNotices === 'function') {
+      for (const n of e.takeNotices()) this.scene.log('info', 'animation: ' + ((n && n.message) || String(n)))
+    }
+    // Strings, or {message, line} with the Python line that made the command.
+    for (const x of e.takeErrors ? e.takeErrors() : []) {
+      if (x && typeof x === 'object') this.report((x.line ? 'line ' + x.line + ': ' : '') + (x.message || String(x)))
+      else this.report(String(x))
+    }
   }
 
   report(msg) {
