@@ -56,6 +56,12 @@ export interface Segment {
   t1: number
   before: Snap
   node: Node | null
+  /** Where it came from: the user's line of the play/wait call, the construct-level line around it (a helper's caller), the section it is in. */
+  line?: number
+  outer?: number
+  section?: number
+  /** The last line of a multi-line call (Python's line_end; 0 = one line). */
+  lineEnd?: number
 }
 
 interface Cfg {
@@ -103,11 +109,17 @@ export function createAnimEngine(options: EngineOptions = {}) {
   let w = new World()
   let segments: Segment[] = []
   let duration = 0
-  let sections: Array<{ name: string; t: number }> = []
+  let sections: Array<{ name: string; t: number; line: number; outer: number; lines?: [number, number] }> = []
+  /** Every command's lines, for rangeForLine (a line inside a multi-line call belongs to the call above it). */
+  let cmdLines: Array<{ line: number; outer: number }> = []
   let version = 0
   let errors: Array<{ message: string; line: number }> = []
   /** The user's line of the command running now (the page sets engine.line before each call). */
   let curLine = 0
+  /** The construct-level line around it, when the call came from a helper function (engine.outer_line). */
+  let curOuter = 0
+  /** The last line of the current call when it spans lines (line_end in play/wait's options). */
+  let curLineEnd = 0
 
   const updaters = new Updaters()
   /** Live overrides from a running Python loop: latest per (target, op); tracker values. */
@@ -159,7 +171,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
 
   let gen = 0
   let pending: Promise<void> | null = null
-  const queue: Array<{ fn: () => unknown; line: number }> = []
+  const queue: Array<{ fn: () => unknown; line: number; outer: number }> = []
   let idle: Array<() => void> = []
 
   function report(e: unknown, line = curLine) {
@@ -182,8 +194,11 @@ export function createAnimEngine(options: EngineOptions = {}) {
     p.then(() => clearTimeout(timer), () => clearTimeout(timer))
   }
 
-  function exec(fn: () => unknown, line: number) {
+  function exec(fn: () => unknown, line: number, outer = 0) {
     curLine = line
+    curOuter = outer
+    curLineEnd = 0
+    if (line || outer) cmdLines.push({ line, outer })
     const r = fn() as Promise<unknown> | undefined
     if (r && typeof r.then === 'function') {
       const my = gen
@@ -199,7 +214,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
   function drain() {
     while (!pending && queue.length) {
       const q = queue.shift()
-      try { exec(q.fn, q.line) } catch (e) { report(e, q.line) }
+      try { exec(q.fn, q.line, q.outer) } catch (e) { report(e, q.line) }
     }
     if (!pending && !queue.length) {
       const waiters = idle
@@ -211,8 +226,9 @@ export function createAnimEngine(options: EngineOptions = {}) {
   /** Run now if nothing is waiting (so a mistake throws back to the caller), else in turn. */
   function run(fn: () => unknown) {
     const line = Number((engine as { line?: number }).line) || 0
-    if (pending || queue.length) queue.push({ fn, line })
-    else exec(fn, line)
+    const outer = Number((engine as { outer_line?: number }).outer_line) || 0
+    if (pending || queue.length) queue.push({ fn, line, outer })
+    else exec(fn, line, outer)
   }
 
   /* --------------------------------------------------------- commands */
@@ -296,7 +312,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
       if (m.kind === 'value_tracker' && m.data?.camera && pre.mobs.get(id)?.data?.value !== m.data.value) trackerToCam(w, id)
     }
     if (node.run > 0) {
-      const seg = { t0: duration, t1: duration + node.run, before, node }
+      const seg: Segment = { t0: duration, t1: duration + node.run, before, node, ...origin() }
       segments.push(seg)
       duration += node.run
       bake(seg)
@@ -352,10 +368,128 @@ export function createAnimEngine(options: EngineOptions = {}) {
     make: (into: World, id: number, kind: string, props: unknown) => { makeKind({ ...makeEnv(), w: into }, id, kind, props) },
   })
 
+  /** The source of a segment made now. */
+  const origin = () => ({ line: curLine, outer: curOuter, lineEnd: curLineEnd, section: Math.max(0, sections.length - 1) })
+
+  /**
+   * The timeline range a source line plays (the editor cursor loops it):
+   * a section() line → that section; a play/wait line (or the construct line
+   * of a helper that played: outer_line) → all its segments (a loop's
+   * included); a line inside a multi-line call → the call it belongs to (the
+   * nearest command line above it, inside the same Scene class); any other
+   * line of a Scene class (section lines span from Python) → that section.
+   * Null when the line plays nothing. `{line, end}` matches every segment
+   * whose line is in that range. A lookup: the per-line index is built once
+   * per timeline change.
+   */
+  type LineRange = { t0: number; t1: number; kind: 'segment' | 'section'; label: string }
+  /** One run of a line: a segment, or the consecutive segments of one helper call (matched by its outer line). */
+  type Run = { t0: number; t1: number; section: number }
+  let lineIndex: { key: string; byLine: Map<number, Run[]> } | null = null
+  function segIndex() {
+    const key = `${gen}|${segments.length}`
+    if (lineIndex && lineIndex.key === key) return lineIndex.byLine
+    const byLine = new Map<number, Run[]>()
+    const lastOuter = new Map<number, number>()
+    segments.forEach((g, k) => {
+      if (g.line) {
+        const runs = byLine.get(g.line) ?? []
+        runs.push({ t0: g.t0, t1: g.t1, section: g.section ?? 0 })
+        byLine.set(g.line, runs)
+      }
+      if (g.outer && g.outer !== g.line) {
+        const runs = byLine.get(g.outer) ?? []
+        // The helper's next play in the same call extends the run.
+        if (lastOuter.get(g.outer) === k - 1 && runs.length) runs[runs.length - 1].t1 = g.t1
+        else runs.push({ t0: g.t0, t1: g.t1, section: g.section ?? 0 })
+        byLine.set(g.outer, runs)
+        lastOuter.set(g.outer, k)
+      }
+    })
+    lineIndex = { key, byLine }
+    return byLine
+  }
+
+  /**
+   * One run to loop when a line plays several times (a helper used by several
+   * scenes, a play in a Python loop): the run at the playhead `t`, else one in
+   * the playhead's section (the first at or after t, else its last), else the
+   * nearest after t, else the first.
+   */
+  function pickRun(runs: Run[], t: number | null): Run {
+    const sorted = [...runs].sort((x, y) => x.t0 - y.t0)
+    if (t == null || !Number.isFinite(t)) return sorted[0]
+    const inside = sorted.find(r => t >= r.t0 && t < r.t1)
+    if (inside) return sorted.filter(r => t >= r.t0 && t < r.t1).pop()
+    let si = -1
+    for (let i = 0; i < sections.length; i++) if (sections[i].t <= t + 1e-9) si = i
+    if (si >= 0) {
+      const mine = sorted.filter(r => r.section === si)
+      if (mine.length) return mine.find(r => r.t0 >= t) ?? mine[mine.length - 1]
+    }
+    return sorted.find(r => r.t0 >= t) ?? sorted[0]
+  }
+
+  function rangeForLine(q: unknown, tHint?: unknown): LineRange | null {
+    const qo = q && typeof q === 'object' ? q as { line?: unknown; end?: unknown; t?: unknown } : null
+    const L = Number(qo ? qo.line : q)
+    if (!Number.isFinite(L) || L <= 0) return null
+    // The playhead: rangeForLine(line, t), rangeForLine(line, {t}) or rangeForLine({line, t}).
+    const th = tHint && typeof tHint === 'object' ? (tHint as { t?: unknown }).t : tHint ?? qo?.t
+    const t = th == null || th === '' ? null : Number(th)
+    const sec = (i: number): LineRange => ({ t0: sections[i].t, t1: i + 1 < sections.length ? sections[i + 1].t : duration, kind: 'section', label: sections[i].name })
+    const byLine = segIndex()
+    const choose = (runs: Run[], label: string): LineRange | null => {
+      if (!runs.length) return null
+      const r = pickRun(runs, t)
+      return { t0: r.t0, t1: r.t1, kind: 'segment', label }
+    }
+    const segsAt = (n: number, end = n): LineRange | null => {
+      if (end === n) return choose(byLine.get(n) ?? [], `line ${n}`)
+      const runs: Run[] = []
+      for (const [k, r] of byLine) if (k >= n && k <= end) runs.push(...r)
+      return choose(runs, `lines ${n}–${end}`)
+    }
+    const findSection = (n: number) => sections.findIndex(x => x.line === n || x.outer === n)
+    let i = findSection(L)
+    if (i >= 0) return sec(i)
+    const E = qo && Number.isFinite(Number(qo.end)) && Number(qo.end) > L ? Number(qo.end) : L
+    const exact = segsAt(L, E)
+    if (exact) return exact
+    // Inside a multi-line call whose extent Python sent (line_end).
+    const spans = segments.filter(g => g.line && g.lineEnd && L > g.line && L <= g.lineEnd)
+    if (spans.length) return choose(spans.map(g => ({ t0: g.t0, t1: g.t1, section: g.section ?? 0 })), `line ${spans[0].line}`)
+    // Inside a call that spans lines: the nearest command line above it.
+    // (Not across Scene classes: when Python sent their line spans, stay inside L's.)
+    const own = sections.find(x => x.lines && L >= x.lines[0] && L <= x.lines[1])
+    if (!own && sections.some(x => x.lines)) return null
+    let c = 0
+    for (const k of cmdLines) for (const n of [k.line, k.outer]) {
+      if (n && n <= L && n > c && (!own || n >= own.lines[0])) c = n
+    }
+    // Only between two commands: past the scene's last command, the line is the scene's, not the last call's.
+    const later = cmdLines.some(k => [k.line, k.outer].some(n => n > L && (!own || n <= own.lines[1])))
+    const inCall = c && later && findSection(c) < 0 ? segsAt(c) : null
+    if (inCall) return inCall
+    // Elsewhere in a Scene class (its class line, a make, a comment): that scene's section.
+    i = sections.findIndex(x => x.lines && L >= x.lines[0] && L <= x.lines[1])
+    return i >= 0 ? sec(i) : null
+  }
+
+  /** Python's outer_line (in play's opts / wait's 2nd argument): the construct line a helper's call came from. */
+  function takeOuter(opts: unknown) {
+    const o = opts && typeof opts === 'object' ? opts as { outer_line?: unknown; line_end?: unknown } : {}
+    curLineEnd = Number(o.line_end) || 0
+    const n = Number(o.outer_line) || 0
+    if (!n) return
+    curOuter = n
+    cmdLines.push({ line: curLine, outer: n })
+  }
+
   function wait(seconds: unknown) {
     const s = Math.max(0, num(Array.isArray(seconds) ? seconds[0] : seconds, 1))
     if (s <= 0) return
-    const seg = { t0: duration, t1: duration + s, before: w.snapshot(), node: null }
+    const seg: Segment = { t0: duration, t1: duration + s, before: w.snapshot(), node: null, ...origin() }
     segments.push(seg)
     duration += s
     bake(seg)
@@ -577,6 +711,7 @@ export function createAnimEngine(options: EngineOptions = {}) {
       segments = []
       duration = 0
       sections = []
+      cmdLines = []
       errors = []
       notices = []
       updaters.reset()
@@ -816,10 +951,11 @@ export function createAnimEngine(options: EngineOptions = {}) {
     play(anims: unknown, opts?: unknown) {
       run(() => {
         evalClock.t = duration
+        takeOuter(opts)
         play(derefSpecs(anims), opts)
       })
     },
-    wait(seconds?: unknown) { run(() => wait(seconds)) },
+    wait(seconds?: unknown, opts?: unknown) { run(() => { takeOuter(opts); wait(seconds) }) },
     /**
      * section(name, {transition, transition_time}): a new scene starts here.
      * With a transition, the scene as it stands now (before the clear that
@@ -827,8 +963,10 @@ export function createAnimEngine(options: EngineOptions = {}) {
      */
     section(name: unknown, opts?: unknown) {
       run(() => {
-        sections.push({ name: String(name ?? ''), t: duration })
-        const o = (opts && typeof opts === 'object' ? opts : {}) as { transition?: string; transition_time?: number }
+        const o = (opts && typeof opts === 'object' ? opts : {}) as { transition?: string; transition_time?: number; lines?: unknown }
+        // lines: the [first, last] source lines of the Scene class this section plays.
+        const span = Array.isArray(o.lines) && o.lines.length === 2 ? [Number(o.lines[0]), Number(o.lines[1])] as [number, number] : undefined
+        sections.push({ name: String(name ?? ''), t: duration, line: curLine, outer: curOuter, lines: span })
         let kind = String(o.transition || cfg.transition || 'none')
         // Unknown names fall back to a crossfade, with one warning (on the user's line).
         if (!TRANSITIONS.has(kind)) {
@@ -902,7 +1040,13 @@ export function createAnimEngine(options: EngineOptions = {}) {
     },
     get errors() { return errors.slice() },
     get duration() { return duration },
-    get sections() { return sections.slice() },
+    get sections() { return sections.map(x => ({ name: x.name, t: x.t })) },
+    /** rangeForLine(line | {line, end}, t?): t is the playhead, to pick one run of a line that plays several times. */
+    rangeForLine(line: unknown, t?: unknown) { return rangeForLine(line, t) },
+    /** For debugging: every timeline segment with where it came from. */
+    segmentList() {
+      return segments.map(g => ({ t0: g.t0, t1: g.t1, kind: g.node ? 'play' : 'wait', line: g.line ?? 0, lineEnd: g.lineEnd ?? 0, outer: g.outer ?? 0, section: g.section ?? 0 }))
+    },
     get background() { return cfg.background },
     /** Bumps on any timeline change and on any live override (the page redraws when it changes). */
     /** The sounds on the timeline (rebuilt with the timeline; `version` bumps on any change). */

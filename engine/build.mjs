@@ -67,4 +67,9 @@ copy(join(lib, 'LICENSE_LIBERATION'), join(out, 'fonts', 'LICENSE_LIBERATION.txt
 copy(join(here, 'LICENSE_KATEX_FONTS.txt'), join(out, 'fonts', 'LICENSE_KATEX_FONTS.txt'))
 // polygon-clipping is bundled into anim.js (Boolean shapes); its licence goes beside it.
 copy(join(nm, 'polygon-clipping/LICENSE.md'), join(out, 'LICENSE-polygon-clipping.txt'))
+// The list of files a page can load (Circuitry downloads them ahead of an update; licence texts are left out).
+const files = ['anim.js', 'opentype.min.js', 'katex.min.js', 'katex.min.css',
+  ...readdirSync(join(out, 'fonts')).filter((f) => /\.(ttf|woff2)$/.test(f)).sort().map((f) => 'fonts/' + f)]
+  .filter((f) => existsSync(join(out, f)))
+writeFileSync(join(out, 'manifest.json'), JSON.stringify({ files }) + '\n')
 console.log('Built ' + out)

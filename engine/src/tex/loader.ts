@@ -4,7 +4,7 @@
  * harness). Each is fetched once per page; parsed fonts are kept for the
  * session, so a re-run only outlines strings it has not seen.
  */
-import { NET_TIMEOUT_MS, fetchBuffer, loadScriptOnce, versioned } from '../text'
+import { fetchBuffer, loadScriptOnce, versioned } from '../text'
 
 
 /* Just the parts of KaTeX and opentype.js we call; both arrive as globals from <script>. */
@@ -88,29 +88,29 @@ function katexCssPresent(): boolean {
   return /KaTeX_Main/.test(fam)
 }
 
+/**
+ * KaTeX's stylesheet with every relative url(...) made absolute and versioned.
+ * Its @font-face rules point at fonts/… relative to the CSS file; left as is,
+ * those font requests would miss the cache-busting version (and the service
+ * worker serves fonts cache-first), so we inject the rewritten text ourselves.
+ */
+export function rewriteCssUrls(css: string, resolve: (path: string) => string): string {
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, _q, path: string) =>
+    /^(?:[a-z][\w+.-]*:|\/|#)/i.test(path) ? m : `url("${resolve(path)}")`,
+  )
+}
+
 let cssPromise: Promise<void> | null = null
 
 function ensureCss(): Promise<void> {
   if (!cssPromise) {
     cssPromise = katexCssPresent()
       ? Promise.resolve()
-      : new Promise<void>((resolve, reject) => {
-          const l = document.createElement('link')
-          const timer = setTimeout(
-            () => reject(new Error(`${l.href} did not load within ${NET_TIMEOUT_MS / 1000} s`)),
-            NET_TIMEOUT_MS,
-          )
-          l.rel = 'stylesheet'
-          l.href = assetUrl('katex.min.css')
-          l.onload = () => {
-            clearTimeout(timer)
-            resolve()
-          }
-          l.onerror = () => {
-            clearTimeout(timer)
-            reject(new Error(`Could not load ${l.href}`))
-          }
-          document.head.appendChild(l)
+      : fetchBuffer(assetUrl('katex.min.css')).then((buf) => {
+          const style = document.createElement('style')
+          style.dataset.cirSrc = 'katex.min.css'
+          style.textContent = rewriteCssUrls(new TextDecoder().decode(buf), assetUrl)
+          document.head.appendChild(style)
         })
     cssPromise.catch(() => (cssPromise = null))
   }
